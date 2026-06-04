@@ -1,0 +1,42 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# ---- Node / Vite (frontend) ----
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- Vulnerability ledger (SQLite, runtime artifact) ----
+data/*.db
+data/*.sqlite3
+*.db
+*.sqlite3
+*.sqlite
+
+# ---- Editors / IDEs ----
+.idea/
+.vscode/
+*.swp
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
