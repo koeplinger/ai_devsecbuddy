@@ -15,7 +15,7 @@ A bank's internal AI platform teams are shipping NLP/LLM-backed applications fas
 - **Prompt injection** — attacker-supplied content is interpreted as instructions because LLMs read instructions and data on the same channel. OWASP ranks this the **#1** LLM risk (LLM01), and there is **no parameterized-query-style fix** — only defense-in-depth and continuous adversarial testing.
 - **Jailbreaks / guardrail evasion** — persona role-play, multi-turn escalation, and adversarial suffixes that subvert a model's safety alignment or its detection layer.
 - **Data exfiltration & system-prompt leakage** — sensitive data (PII, credentials, proprietary rubrics) flowing out through crafted prompts. For a bank, the highest-stakes category.
-- **Fairness / bias failures** — resume- and applicant-scoring models that reproduce demographic bias. This is not hypothetical: from Amazon's scrapped recruiting tool to the 2024 UW study showing production LLMs prefer White-associated names roughly 85% of the time and male-associated names roughly 52%, name-based bias is well-documented — and name redaction alone is insufficient because identity leaks via schools, locations, and word choice.
+- **Fairness / bias failures** — résumé- and applicant-scoring models that reproduce demographic bias. This is not hypothetical: a 2024 audit of language-model résumé screening ([Wilson & Caliskan, AIES 2024](https://arxiv.org/abs/2407.20371)) found the models favored White-associated names in **85.1%** of cases and female-associated names in only **11.1%**, and disadvantaged Black-male-associated names in up to **100%** of cases. Name redaction alone is insufficient — identity leaks via schools, locations, and word choice. Full sources (including Amazon's 2018 recruiting-tool case, reported by Reuters) are in [docs/bias-and-fairness.md](docs/bias-and-fairness.md).
 
 **Why shift-left?** Catching these in production is expensive, reputationally damaging, and — for hiring and lending use cases — a legal exposure. AI DevSecBuddy moves the testing **left**, into the test environment (e.g. UAT), so developers find and fix AI-specific vulnerabilities during development instead of gating release late.
 
@@ -136,9 +136,23 @@ ai_devsecbuddy/
 
 ---
 
+## Quickstart (milestone M1)
+
+The `devsecbuddy` core library runs today on the offline `MockEngine` — no keys, no network:
+
+```bash
+pip install -e .                  # or: pip install pyyaml pytest
+python -m pytest -q               # 19 tests, incl. the tiles.md divergence table
+python -m devsecbuddy --tile all  # run the full three-phase loop on all four tiles
+```
+
+The demo writes findings to `data/ledger.db` (gitignored) and prints each tile's profile: `tile-unguarded` raises three findings (injection, exfiltration, bias), the two middle tiles each raise findings on exactly one axis, and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md).
+
+---
+
 ## Status & roadmap
 
-AI DevSecBuddy is an **early prototype** and intentionally **docs-first**: this deliverable is **documentation and folder structure only** — there is no runtime application code yet, and behavior is described as *design*. Inert sample YAML attack vectors are included as illustration under `attack-library/vectors/`.
+AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestone M0** (the docs + folder structure) and **milestone M1** (the `devsecbuddy` core — the `AppAdapter` / `AIEngine` contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger) are **complete and tested**. The FastAPI backend (M2) and React frontend (M3) are next.
 
 The model engines are **pluggable** behind the `AIEngine` interface:
 

@@ -115,14 +115,18 @@ resume fixed, vary **only** the applicant name across a demographic axis
 [bias-and-fairness.md](bias-and-fairness.md).
 
 This design is well-grounded. The Bertrand & Mullainathan name-callback field
-experiment (AER 2004) found White-sounding names received roughly 50% more
-interview callbacks than identical resumes with Black-sounding names. More
-recently, Wilson & Caliskan (UW, AIES 2024) showed production LLM resume scorers
-reproduce name-based bias — preferring White-associated names and male names —
-and, importantly, that **name redaction alone is insufficient** because identity
-leaks via schools, locations, and word choice. Real-world incidents (Amazon's
-scrapped recruiting tool; the iTutorGroup EEOC settlement) reinforce that
-**proxy features** must be probed, not just explicit gender.
+experiment ([AER 2004 / NBER w9873](https://www.nber.org/papers/w9873)) found
+White-sounding names received roughly 50% more interview callbacks than identical
+résumés with Black-sounding names. More recently, [Wilson & Caliskan (AIES
+2024)](https://arxiv.org/abs/2407.20371) showed LLM-based résumé screeners
+reproduce name-based bias — favoring White-associated names in 85.1% of cases and
+female-associated names in only 11.1% — and, importantly, that **name redaction
+alone is insufficient** because identity leaks via schools, locations, and word
+choice. Real-world incidents — Amazon's scrapped recruiting tool (Reuters, 2018)
+and the [iTutorGroup EEOC settlement, 2023](https://www.eeoc.gov/newsroom/itutorgroup-pay-365000-settle-eeoc-discriminatory-hiring-suit)
+(hiring software that automatically rejected applicants by age and sex) — confirm
+that automated hiring tools discriminate in production, so both **proxy features**
+and explicit automated rules must be probed.
 
 Because parity, equalized odds, and calibration are generally mathematically
 incompatible, the ledger reports **multiple metrics and continuous score deltas**

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devsecbuddy"
+version = "0.1.0"
+description = "AI DevSecBuddy — automated adversarial AI-security testing library (roadmap M1 core: contract + MockEngine + SQLite ledger)."
+readme = "devsecbuddy/README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+dependencies = ["pyyaml>=6.0"]
+
+[project.optional-dependencies]
+# Cloud engine adapters are designed now and wired up in roadmap M6 (accounts TBD).
+anthropic = ["anthropic>=0.40"]
+vertex = ["google-cloud-aiplatform>=1.60"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+devsecbuddy = "devsecbuddy.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["devsecbuddy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

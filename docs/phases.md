@@ -209,7 +209,10 @@ whether the attack succeeded. This is where vulnerabilities are surfaced.
 
 ```python
 class AdversarialProber:
-    def __init__(self, vectors: list[AttackVector], baseline: Baseline): ...
+    def __init__(self, vectors: list[AttackVector], baseline: Baseline,
+                 corpus: list[AppRequest]): ...
+        # corpus = the same clean inputs the baseline was built on; the prober
+        # mutates a seed drawn from it (append injection / counterfactual name swap).
     def probe(self, adapter: AppAdapter) -> list[ProbeResult]: ...
         # for each enabled vector: render payload, invoke adapter, evaluate
         # success_criteria against the response and the baseline.

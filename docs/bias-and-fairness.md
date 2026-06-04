@@ -45,7 +45,7 @@ qualitatively.
 | Case | What was reported | Lesson for a fairness tester |
 | --- | --- | --- |
 | **Amazon experimental recruiting tool** (scrapped ~2017; reported by Reuters, 2018) | An internal resume-scoring model trained on roughly a decade of mostly-male tech resumes reportedly learned to penalize resumes containing the word "women's" (e.g. "women's chess club") and graduates of some all-women's colleges, and to favor male-coded action verbs. Amazon could not guarantee neutrality and scrapped it. | Historical training data encodes and amplifies demographic bias. Probe **proxy features** (school names, gendered words, action verbs), not just explicit gender — and never trust a neutrality claim without a measured delta. |
-| **iTutorGroup — EEOC settlement** ($365,000, Sept 2023) | Recruiting software was reportedly configured to auto-reject female applicants aged 55+ and male applicants aged 60+, rejecting 200+ qualified applicants. Reported as the EEOC's first AI-discrimination settlement under the ADEA. | Explicit demographic cutoffs are detectable by attribute-swap probes. Treat **age** as a protected attribute and confirm there are no hard threshold rejections. |
+| **[iTutorGroup — EEOC settlement](https://www.eeoc.gov/newsroom/itutorgroup-pay-365000-settle-eeoc-discriminatory-hiring-suit)** ($365,000, Sept 2023) | Recruiting software was reportedly configured to auto-reject female applicants aged 55+ and male applicants aged 60+, rejecting 200+ qualified applicants. Widely reported as the EEOC's first AI hiring-discrimination settlement. | Explicit demographic cutoffs are detectable by attribute-swap probes. Treat **age** as a protected attribute and confirm there are no hard threshold rejections. |
 | **Mobley v. Workday** (filed 2024; collective action certified May 2025) | The plaintiff *alleges* an AI applicant-screening platform discriminated by age (40+), race, and disability across 100+ rejected applications; a federal court reportedly allowed it to proceed as a nationwide ADEA collective action. **Allegations pending litigation.** | Liability can attach to the **platform / vendor**, not only the employer. Test **intersectional** bias (age × race × disability) jointly. Shift-left testing reduces downstream legal exposure. |
 | **HireVue / Intuit — ACLU EEOC complaint** (March 2025) | A complaint *alleges* an AI video-interview tool disadvantaged an Indigenous Deaf applicant by scoring speech patterns, facial expressions, and "active listening." **Pending before the EEOC and a state civil-rights body; unproven.** | Multimodal scoring (voice / face) introduces disability and accent / ethnicity bias beyond text. Multimodal backends need **modality-specific** fairness probes. |
 
@@ -58,17 +58,18 @@ name-swapping approach DevSecBuddy uses actually detects real bias:
   callbacks than identical resumes with Black-sounding names, a gap that held
   across industry and employer type. This is the canonical counterfactual
   name-swap design — hold the resume fixed, vary only the name, measure the
-  outcome delta — that DevSecBuddy's bias probes emulate. (A later replication
-  debate exists in the literature; the design itself remains the standard.)
-- **Wilson & Caliskan LLM resume-screening study** (UW, AIES 2024;
-  arXiv:2407.20371). Three production LLMs ranked 550+ resumes against 500+ real
-  job listings while varying race/gender-associated names. The study reported
-  the models preferred White-associated names far more often than
-  Black-associated names, and male-associated names more often than
-  female-associated names, with the worst disparities at the intersection
-  (Black-male names). Crucially, it found that **removing names is not
-  sufficient**, because identity still leaks via schools, locations, and word
-  choice. This directly validates DevSecBuddy's name-swap probe design *and* its
+  outcome delta — that DevSecBuddy's bias probes emulate. The counterfactual
+  name-swap remains the standard audit methodology.
+- **Wilson & Caliskan LLM résumé-screening study** ([AIES 2024;
+  arXiv:2407.20371](https://arxiv.org/abs/2407.20371)). Language-model–based
+  résumé screeners ranked over 500 résumés against 500+ real job descriptions
+  across nine occupations while varying race/gender-associated names. The study
+  reported the models favored White-associated names in **85.1%** of cases and
+  female-associated names in only **11.1%**, with the worst disparities at the
+  intersection — Black-male-associated names disadvantaged in up to **100%** of
+  cases. Crucially, it found that **removing names is not sufficient**, because
+  identity still leaks via schools, locations, and word choice. This directly
+  validates DevSecBuddy's name-swap probe design *and* its
   use of proxy-feature probing.
 
 > **Takeaway for DevSecBuddy.** Modern LLM resume scorers reproduce name-based

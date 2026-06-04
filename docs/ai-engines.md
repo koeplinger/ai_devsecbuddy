@@ -131,11 +131,11 @@ changes the vulnerability profile is the tile's guardrails.
 Crucially, `MockEngine` is **intentionally flawed by design**. A perfectly safe
 mock model would make the **unguarded** tile look safe and defeat the whole
 demonstration. Instead, `MockEngine` reproduces — in a small, documented,
-deterministic way — the exact failure modes that real LLM resume scorers exhibit
-in the literature (e.g. the Amazon recruiting-tool proxy bias, and the
-University of Washington / AIES 2024 finding that production LLMs strongly prefer
-White- and male-associated names). The rigged behaviors below are **features of
-the test fixture, not bugs**.
+deterministic way — the exact failure modes that real LLM résumé scorers exhibit
+in the literature (e.g. Amazon's recruiting-tool proxy bias, reported by Reuters
+in 2018, and the LLM résumé-screening bias measured by [Wilson & Caliskan, AIES
+2024](https://arxiv.org/abs/2407.20371)). The rigged behaviors below are
+**features of the test fixture, not bugs**.
 
 ### Rigged behavior 1 — obeys injected instructions when the tile is unguarded
 

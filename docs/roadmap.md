@@ -29,7 +29,7 @@ The guiding principles:
 | # | Milestone | Scope summary | Key deliverables | Engine | Status |
 | --- | --- | --- | --- | --- | --- |
 | **M0** | **Structure + README + docs** | Canonical repo layout, top-level README, and the full `docs/` set derived from the Design Bible. | `README.md`, `docs/architecture.md`, `docs/phases.md`, `docs/ai-engines.md`, `docs/attack-library.md`, `docs/tiles.md`, `docs/vulnerability-ledger.md`, `docs/bias-and-fairness.md`, `docs/roadmap.md`; folder skeleton (`frontend/`, `backend/`, `devsecbuddy/`, `attack-library/`, `data/`). | n/a | ✅ done |
-| **M1** | **`devsecbuddy` contract + `MockEngine` + SQLite ledger** | Implement the product's core: the public contract, the default engine, and persistence. | `AIEngine` / `AppAdapter` protocols; data models (`AttackVector`, `ProbeResult`, `Finding`, `Baseline`); `BaselineProfiler`, `AdversarialProber`, `Ledger`; `MockEngine`; SQLite schema bootstrap for `data/ledger.db`. | `MockEngine` | ⬜ not started |
+| **M1** | **`devsecbuddy` contract + `MockEngine` + SQLite ledger** | Implement the product's core: the public contract, the default engine, and persistence. | `AIEngine` / `AppAdapter` protocols; data models (`AttackVector`, `ProbeResult`, `Finding`, `Baseline`); `BaselineProfiler`, `AdversarialProber`, `Ledger`; `MockEngine`; SQLite schema bootstrap for `data/ledger.db`. | `MockEngine` | ✅ done |
 | **M2** | **FastAPI backend + unguarded tile + run API** | Stand up the backend that hosts a tile and exposes the DevSecBuddy run/report API. | `tile-unguarded` as an `AppAdapter`; FastAPI run/report endpoints; engine selection (Mock default); ledger wiring. | `MockEngine` | ⬜ not started |
 | **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ⬜ not started |
 | **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ⬜ not started |
@@ -44,7 +44,7 @@ The guiding principles:
 
 ```mermaid
 graph LR
-    M0["M0 · Structure + docs ✅"] --> M1["M1 · devsecbuddy contract<br/>+ MockEngine + ledger"]
+    M0["M0 · Structure + docs ✅"] --> M1["M1 · devsecbuddy contract<br/>+ MockEngine + ledger ✅"]
     M1 --> M2["M2 · FastAPI backend<br/>+ unguarded tile + run API"]
     M2 --> M3["M3 · Frontend slice<br/>tiles grid · run console · ledger viewer"]
     M3 --> M4["M4 · Remaining tiles"]
@@ -54,6 +54,7 @@ graph LR
     M7 --> M8["M8 · Polish · reporting · export"]
 
     style M0 fill:#cdeccd,stroke:#2d6a2d
+    style M1 fill:#cdeccd,stroke:#2d6a2d
     style M6 fill:#ffe8b3,stroke:#b37700
 ```
 
@@ -74,7 +75,7 @@ is the foundation every later milestone implements against. See
 [architecture.md](architecture.md) for the component map and
 [phases.md](phases.md) for the three-phase model.
 
-### M1 — `devsecbuddy` contract + `MockEngine` + SQLite ledger ⬜
+### M1 — `devsecbuddy` contract + `MockEngine` + SQLite ledger ✅
 
 Implement the product library in `devsecbuddy/`:
 
@@ -92,6 +93,15 @@ Because `MockEngine` is deterministic, the whole loop is reproducible from this
 point forward — a prerequisite for stable demos. See
 [ai-engines.md](ai-engines.md) and
 [vulnerability-ledger.md](vulnerability-ledger.md).
+
+**Status: implemented.** The [`../devsecbuddy/`](../devsecbuddy/) package ships the
+`AppAdapter` / `AIEngine` contracts, the data models, the three phase components,
+the deterministic `MockEngine` (with `AnthropicEngine` / `VertexEngine` stubs for
+M6), the five-table SQLite ledger, four reference tiles, and a CLI
+(`python -m devsecbuddy --tile all`). A pytest suite asserts the
+[tiles.md](tiles.md) divergence table and run reproducibility. See
+[`../devsecbuddy/README.md`](../devsecbuddy/README.md) for the module map and
+quickstart.
 
 ### M2 — FastAPI backend with the unguarded tile + run API ⬜
 
@@ -178,17 +188,18 @@ Final readiness pass for the demo and for platform/security audiences:
 
 ## Immediate next follow-on prompts
 
-The next two prompts pick up directly where the docs-only deliverable ends:
+**M0 and M1 are complete** (the docs + structure, and the `devsecbuddy` core —
+contract, `MockEngine`, and SQLite ledger, runnable via `python -m devsecbuddy`).
+The next prompts:
 
-1. **Engine account setup (prerequisite for M6).** Guide the user through
-   creating an **Anthropic API key** and provisioning a **GCP / Vertex AI
-   project**, then capturing those credentials so `AnthropicEngine` and
-   `VertexEngine` can be wired up. This is a dependency that must be satisfied
-   before M6 — see [ai-engines.md](ai-engines.md).
-2. **Implement the mock (start of M1).** Build the `devsecbuddy` contract, the
-   deterministic intentionally-flawed **`MockEngine`**, and the SQLite ledger —
-   the first runnable code in the project and the foundation for the M2/M3
-   vertical slice.
+1. **M2 — FastAPI backend + run API.** Host `tile-unguarded` behind the
+   `AppAdapter` contract in [`../backend/`](../backend/) and expose the DevSecBuddy
+   run/report API, driving the documented `open_run → … → close_run` flow over
+   HTTP. The backend *imports* `devsecbuddy`; it never reimplements product logic.
+2. **Engine account setup (prerequisite for M6).** Guide the user through creating
+   an **Anthropic API key** and provisioning a **GCP / Vertex AI project**, then
+   capturing those credentials so `AnthropicEngine` and `VertexEngine` can be wired
+   up behind the unchanged `AIEngine` interface — see [ai-engines.md](ai-engines.md).
 
 ---
 
