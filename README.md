@@ -133,6 +133,7 @@ ai_devsecbuddy/
 | [docs/vulnerability-ledger.md](docs/vulnerability-ledger.md) | The SQLite ledger schema (tables and columns) and the finding lifecycle. |
 | [docs/bias-and-fairness.md](docs/bias-and-fairness.md) | The counterfactual name-swap methodology and fairness metrics. |
 | [docs/roadmap.md](docs/roadmap.md) | Phased delivery plan, including when the engines and runtime code get wired up. |
+| [docs/hypotheses/](docs/hypotheses/) | Validation hypotheses — desirability, feasibility, and viability assumptions to test before fully committing. |
 
 ---
 
