@@ -30,7 +30,7 @@ The guiding principles:
 | --- | --- | --- | --- | --- | --- |
 | **M0** | **Structure + README + docs** | Canonical repo layout, top-level README, and the full `docs/` set derived from the Design Bible. | `README.md`, `docs/architecture.md`, `docs/phases.md`, `docs/ai-engines.md`, `docs/attack-library.md`, `docs/tiles.md`, `docs/vulnerability-ledger.md`, `docs/bias-and-fairness.md`, `docs/roadmap.md`; folder skeleton (`frontend/`, `backend/`, `devsecbuddy/`, `attack-library/`, `data/`). | n/a | ✅ done |
 | **M1** | **`devsecbuddy` contract + `MockEngine` + SQLite ledger** | Implement the product's core: the public contract, the default engine, and persistence. | `AIEngine` / `AppAdapter` protocols; data models (`AttackVector`, `ProbeResult`, `Finding`, `Baseline`); `BaselineProfiler`, `AdversarialProber`, `Ledger`; `MockEngine`; SQLite schema bootstrap for `data/ledger.db`. | `MockEngine` | ✅ done |
-| **M2** | **FastAPI backend + unguarded tile + run API** | Stand up the backend that hosts a tile and exposes the DevSecBuddy run/report API. | `tile-unguarded` as an `AppAdapter`; FastAPI run/report endpoints; engine selection (Mock default); ledger wiring. | `MockEngine` | ⬜ not started |
+| **M2** | **FastAPI backend + unguarded tile + run API** | Stand up the backend that hosts a tile and exposes the DevSecBuddy run/report API. | `tile-unguarded` as an `AppAdapter`; FastAPI run/report endpoints; engine selection (Mock default); ledger wiring. | `MockEngine` | ✅ done |
 | **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ⬜ not started |
 | **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ⬜ not started |
 | **M5** | **Full attack library + bias metrics** | Broaden coverage to the full vector set and fairness measurement. | `attack-library/vectors/*.yaml` across all four categories; counterfactual name-swap probes + bias metrics (score-delta, disparate-impact). | `MockEngine` | ⬜ not started |
@@ -45,7 +45,7 @@ The guiding principles:
 ```mermaid
 graph LR
     M0["M0 · Structure + docs ✅"] --> M1["M1 · devsecbuddy contract<br/>+ MockEngine + ledger ✅"]
-    M1 --> M2["M2 · FastAPI backend<br/>+ unguarded tile + run API"]
+    M1 --> M2["M2 · FastAPI backend<br/>+ unguarded tile + run API ✅"]
     M2 --> M3["M3 · Frontend slice<br/>tiles grid · run console · ledger viewer"]
     M3 --> M4["M4 · Remaining tiles"]
     M4 --> M5["M5 · Full attack library<br/>+ bias metrics"]
@@ -55,6 +55,7 @@ graph LR
 
     style M0 fill:#cdeccd,stroke:#2d6a2d
     style M1 fill:#cdeccd,stroke:#2d6a2d
+    style M2 fill:#cdeccd,stroke:#2d6a2d
     style M6 fill:#ffe8b3,stroke:#b37700
 ```
 
@@ -103,7 +104,7 @@ M6), the five-table SQLite ledger, four reference tiles, and a CLI
 [`../devsecbuddy/README.md`](../devsecbuddy/README.md) for the module map and
 quickstart.
 
-### M2 — FastAPI backend with the unguarded tile + run API ⬜
+### M2 — FastAPI backend with the unguarded tile + run API ✅
 
 Stand up `backend/` as the integration point: host the first tile,
 `tile-unguarded`, wrapped behind `AppAdapter`, and expose the DevSecBuddy
@@ -111,6 +112,15 @@ run/report API. The backend selects the engine (Mock by default), drives the
 end-to-end run (`open_run` → baseline → probe → record → `close_run`), and wires
 persistence. The backend *imports* `devsecbuddy`; it never reimplements product
 logic. See [tiles.md](tiles.md) and [architecture.md](architecture.md).
+
+**Status: implemented.** [`../backend/`](../backend/) is a FastAPI service that
+hosts the four reference tiles behind `AppAdapter` and exposes the run/report API
+(`/tiles`, `/engines`, `POST /runs`, `/runs/{id}`, `/findings`), with env-driven
+engine selection (`MockEngine` default; cloud engines return HTTP 501 until M6).
+A `POST /runs` drives the full `open_run → baseline → probe → record → close_run`
+flow and returns the run summary + findings; 8 API tests pass. Runs are
+synchronous for now — live streaming arrives with the M3 frontend. Run it with
+`uvicorn backend.main:app`; see [`../backend/README.md`](../backend/README.md).
 
 ### M3 — Frontend tiles grid + run console + ledger viewer (vertical slice) ⬜
 
@@ -188,14 +198,13 @@ Final readiness pass for the demo and for platform/security audiences:
 
 ## Immediate next follow-on prompts
 
-**M0 and M1 are complete** (the docs + structure, and the `devsecbuddy` core —
-contract, `MockEngine`, and SQLite ledger, runnable via `python -m devsecbuddy`).
+**M0, M1 and M2 are complete** (the docs + structure; the `devsecbuddy` core; and
+the FastAPI backend + run/report API, runnable via `uvicorn backend.main:app`).
 The next prompts:
 
-1. **M2 — FastAPI backend + run API.** Host `tile-unguarded` behind the
-   `AppAdapter` contract in [`../backend/`](../backend/) and expose the DevSecBuddy
-   run/report API, driving the documented `open_run → … → close_run` flow over
-   HTTP. The backend *imports* `devsecbuddy`; it never reimplements product logic.
+1. **M3 — frontend vertical slice.** Build the Vite + React + TypeScript client in
+   [`../frontend/`](../frontend/) as a thin layer over the run API: a tiles grid, a
+   run console, and a ledger viewer, proving the full loop on `tile-unguarded`.
 2. **Engine account setup (prerequisite for M6).** Guide the user through creating
    an **Anthropic API key** and provisioning a **GCP / Vertex AI project**, then
    capturing those credentials so `AnthropicEngine` and `VertexEngine` can be wired

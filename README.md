@@ -137,23 +137,29 @@ ai_devsecbuddy/
 
 ---
 
-## Quickstart (milestone M1)
+## Quickstart
 
-The `devsecbuddy` core library runs today on the offline `MockEngine` — no keys, no network:
+The `devsecbuddy` core and the FastAPI backend run today on the offline `MockEngine` — no keys, no network:
 
 ```bash
-pip install -e .                  # or: pip install pyyaml pytest
-python -m pytest -q               # 19 tests, incl. the tiles.md divergence table
-python -m devsecbuddy --tile all  # run the full three-phase loop on all four tiles
+pip install -e ".[backend,dev]"   # core + FastAPI/uvicorn/httpx + pytest
+python -m pytest -q               # 27 tests (library + API), incl. the tiles.md divergence table
+
+# CLI — run the full three-phase loop on all four tiles:
+python -m devsecbuddy --tile all
+
+# API — serve the run/report API (OpenAPI docs at /docs):
+uvicorn backend.main:app --reload
+curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{"tile_id":"tile-unguarded"}'
 ```
 
-The demo writes findings to `data/ledger.db` (gitignored) and prints each tile's profile: `tile-unguarded` raises three findings (injection, exfiltration, bias), the two middle tiles each raise findings on exactly one axis, and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md).
+Both write findings to `data/ledger.db` (gitignored), and the per-tile profile is the same either way: `tile-unguarded` raises three findings (injection, exfiltration, bias), the two middle tiles each raise findings on exactly one axis, and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md) and [backend/README.md](backend/README.md).
 
 ---
 
 ## Status & roadmap
 
-AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestone M0** (the docs + folder structure) and **milestone M1** (the `devsecbuddy` core — the `AppAdapter` / `AIEngine` contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger) are **complete and tested**. The FastAPI backend (M2) and React frontend (M3) are next.
+AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M2** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — the `AppAdapter` / `AIEngine` contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); and the FastAPI backend that hosts the tiles and exposes the run/report API (M2). The React frontend (M3) is next.
 
 The model engines are **pluggable** behind the `AIEngine` interface:
 

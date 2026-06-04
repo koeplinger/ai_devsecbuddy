@@ -242,6 +242,33 @@ class Ledger:
         rows = self.conn.execute(sql, params).fetchall()
         return [_row_to_finding(row) for row in rows]
 
+    def get_finding(self, finding_id: str) -> Finding | None:
+        row = self.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,)).fetchone()
+        return _row_to_finding(row) if row else None
+
+    def list_runs(self, tile_id: str | None = None, limit: int = 100) -> list[dict]:
+        sql, params = "SELECT * FROM runs", []
+        if tile_id:
+            sql += " WHERE tile_id = ?"
+            params.append(tile_id)
+        sql += " ORDER BY started_at DESC, run_id LIMIT ?"
+        params.append(limit)
+        return [self._run_row(r) for r in self.conn.execute(sql, params).fetchall()]
+
+    def get_run(self, run_id: str) -> dict | None:
+        row = self.conn.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+        return self._run_row(row) if row else None
+
+    @staticmethod
+    def _run_row(row: sqlite3.Row) -> dict:
+        data = dict(row)
+        if data.get("summary"):
+            try:
+                data["summary"] = json.loads(data["summary"])
+            except (TypeError, ValueError):
+                pass
+        return data
+
     def close(self) -> None:
         self.conn.close()
 

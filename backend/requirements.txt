@@ -1,0 +1,6 @@
+# AI DevSecBuddy backend (roadmap M2) runtime + test dependencies.
+# The backend also requires the devsecbuddy package (the repo root) on the path:
+#   pip install -e .            # from the repo root
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27                      # used by the FastAPI TestClient in the API tests
