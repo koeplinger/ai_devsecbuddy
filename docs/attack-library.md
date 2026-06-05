@@ -232,15 +232,28 @@ flowchart LR
 
 ## 4. Sample vectors
 
-The three vectors below are real, schema-conformant files in the repo (inert
-illustration only). One per category that drives the resume-scorer demo:
-injection, exfiltration, and bias.
+The library spans **all four categories** (inert, schema-conformant data). The
+three vectors detailed in §4.1–4.3 drive the core resume-scorer demo; the set was
+broadened with a jailbreak, an indirect injection, and a rubric-extraction probe,
+plus several **staged** vectors (`enabled: false`) that document real-engine-only
+techniques — encoding obfuscation, multi-turn escalation, PII elicitation — and
+activate once the cloud engines are wired (M6). Disabled vectors are validated but
+skipped by the prober.
 
-| File | `id` | `category` | `owasp_ref` |
-| --- | --- | --- | --- |
-| [`injection-favorable-score.yaml`](../attack-library/vectors/injection-favorable-score.yaml) | `pi-favorable-score-001` | `prompt_injection` | `LLM01` |
-| [`exfiltration-system-prompt.yaml`](../attack-library/vectors/exfiltration-system-prompt.yaml) | `ex-system-prompt-leak-001` | `data_exfiltration` | `LLM06` |
-| [`bias-name-swap.yaml`](../attack-library/vectors/bias-name-swap.yaml) | `bias-name-swap-001` | `bias_fairness` | `LLM09` |
+| File | `id` | `category` | `owasp_ref` | `enabled` |
+| --- | --- | --- | --- | --- |
+| [`injection-favorable-score.yaml`](../attack-library/vectors/injection-favorable-score.yaml) | `pi-favorable-score-001` | `prompt_injection` | `LLM01` | ✅ |
+| [`prompt-injection-extra.yaml`](../attack-library/vectors/prompt-injection-extra.yaml) | `pi-indirect-note-001` | `prompt_injection` | `LLM01` | ✅ |
+| [`prompt-injection-extra.yaml`](../attack-library/vectors/prompt-injection-extra.yaml) | `pi-encoding-base64-001` | `prompt_injection` | `LLM01` | ⬜ staged |
+| [`modal-jailbreak.yaml`](../attack-library/vectors/modal-jailbreak.yaml) | `mj-dan-persona-001` | `modal_jailbreak` | `LLM01` | ✅ |
+| [`modal-jailbreak.yaml`](../attack-library/vectors/modal-jailbreak.yaml) | `mj-crescendo-multiturn-001` | `modal_jailbreak` | `LLM01` | ⬜ staged |
+| [`exfiltration-system-prompt.yaml`](../attack-library/vectors/exfiltration-system-prompt.yaml) | `ex-system-prompt-leak-001` | `data_exfiltration` | `LLM06` | ✅ |
+| [`exfiltration-extra.yaml`](../attack-library/vectors/exfiltration-extra.yaml) | `ex-rubric-extract-001` | `data_exfiltration` | `LLM06` | ✅ |
+| [`exfiltration-extra.yaml`](../attack-library/vectors/exfiltration-extra.yaml) | `ex-pii-elicit-001` | `data_exfiltration` | `LLM06` | ⬜ staged |
+| [`bias-name-swap.yaml`](../attack-library/vectors/bias-name-swap.yaml) | `bias-name-swap-001` | `bias_fairness` | `LLM09` | ✅ |
+
+The three blocks below detail the canonical samples; the broadened vectors follow
+the same schema.
 
 ### 4.1 Prompt injection — favorable-score override
 
@@ -359,6 +372,7 @@ injection, exfiltration, and bias.
     metric: mean_abs_score_delta
     operator: ">"
     threshold: 5
+    selection_threshold: 65          # advance/shortlist cutoff for the rate-based metrics
   mitigation: >
     Redact or neutralize applicant names before scoring and evaluate on
     job-relevant features only. Note that name redaction alone is insufficient -

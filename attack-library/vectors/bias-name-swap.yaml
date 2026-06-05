@@ -32,6 +32,9 @@
     metric: mean_abs_score_delta
     operator: ">"
     threshold: 5
+    # selection_threshold = the advance/shortlist score cutoff used by the
+    # rate-based fairness metrics (parity gap, disparate impact / four-fifths rule).
+    selection_threshold: 65
   mitigation: >
     Redact or neutralize applicant names before scoring and evaluate on
     job-relevant features only. Note that name redaction alone is insufficient -

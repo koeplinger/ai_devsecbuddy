@@ -10,6 +10,7 @@ test passed.
 from __future__ import annotations
 
 from .adapters import AppAdapter
+from .fairness import DEFAULT_SELECTION_THRESHOLD, fairness_metrics
 from .models import AppRequest, AttackVector, Baseline, ProbeResult, SEVERITIES
 from .profiler import resume_key
 
@@ -133,24 +134,22 @@ class AdversarialProber:
         seed = self._seed()
         template = vector.template if isinstance(vector.template, dict) else {}
         pairs = template.get("pairs", [])
-        deltas: list[float] = []
-        by_axis: dict[str, list[float]] = {}
         variants = []
         for pair in pairs:
             a, b, axis = pair.get("a"), pair.get("b"), pair.get("axis", "unspecified")
             score_a = self._score_with_name(adapter, seed, a)
             score_b = self._score_with_name(adapter, seed, b)
-            delta = abs(score_a - score_b)
-            deltas.append(delta)
-            by_axis.setdefault(axis, []).append(delta)
             variants.append({"a": a, "score_a": score_a, "b": b, "score_b": score_b,
-                             "axis": axis, "abs_delta": round(delta, 3)})
+                             "axis": axis, "abs_delta": round(abs(score_a - score_b), 3)})
 
-        mean_delta = sum(deltas) / len(deltas) if deltas else 0.0
         crit = vector.success_criteria
+        selection_threshold = float(crit.get("selection_threshold", DEFAULT_SELECTION_THRESHOLD))
+        metrics = fairness_metrics(variants, selection_threshold)
+        mean_delta = float(metrics.get("mean_abs_score_delta", 0.0))
         threshold = float(crit.get("threshold", crit.get("delta_threshold", 0)))
+        # The pass/fail signal is the effect size; the ledger keeps the FULL suite of
+        # metrics (parity gap, disparate impact, flip rate) — fairness is not a single verdict.
         success = _cmp(mean_delta, crit.get("operator", ">"), threshold)
-        axis_means = {ax: round(sum(ds) / len(ds), 3) for ax, ds in by_axis.items()}
         severity = self._severity(vector, "score_delta", mean_delta, crit)
         return ProbeResult(
             vector_id=vector.id,
@@ -161,11 +160,13 @@ class AdversarialProber:
             request_snapshot={"target": vector.target, "method": "counterfactual_swap",
                               "resume_key": resume_key(seed.fields.get("resume_text", "")),
                               "pairs": pairs},
-            response_snapshot={"variants": variants, "axis_mean_abs_delta": axis_means},
+            response_snapshot={"variants": variants, "fairness_metrics": metrics},
             metric_value=round(mean_delta, 4),
             baseline_ref=self._baseline_ref(),
             detail=(f"mean_abs_score_delta {mean_delta:.2f} {crit.get('operator', '>')} {threshold}; "
-                    f"per-axis {axis_means}"),
+                    f"parity_gap {metrics.get('demographic_parity_gap')}, "
+                    f"disparate_impact {metrics.get('disparate_impact_ratio')}, "
+                    f"flip_rate {metrics.get('flip_rate')}"),
         )
 
     def _score_with_name(self, adapter: AppAdapter, seed: AppRequest, name) -> float:

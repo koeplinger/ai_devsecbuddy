@@ -33,7 +33,7 @@ The guiding principles:
 | **M2** | **FastAPI backend + unguarded tile + run API** | Stand up the backend that hosts a tile and exposes the DevSecBuddy run/report API. | `tile-unguarded` as an `AppAdapter`; FastAPI run/report endpoints; engine selection (Mock default); ledger wiring. | `MockEngine` | ✅ done |
 | **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ✅ done |
 | **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ✅ done |
-| **M5** | **Full attack library + bias metrics** | Broaden coverage to the full vector set and fairness measurement. | `attack-library/vectors/*.yaml` across all four categories; counterfactual name-swap probes + bias metrics (score-delta, disparate-impact). | `MockEngine` | ⬜ not started |
+| **M5** | **Full attack library + bias metrics** | Broaden coverage to the full vector set and fairness measurement. | `attack-library/vectors/*.yaml` across all four categories; counterfactual name-swap probes + bias metrics (score-delta, disparate-impact). | `MockEngine` | ✅ done |
 | **M6** | **Wire `AnthropicEngine`, then `VertexEngine`** | Connect the real model adapters behind the existing `AIEngine` interface. **Requires external account setup (see below).** | `AnthropicEngine` (Claude) wired first, then `VertexEngine` (Google Vertex AI); engine picker in UI/run API. | `AnthropicEngine` → `VertexEngine` | ⬜ not started |
 | **M7** | **Passive-learning / baseline phase vs. real UAT capture** | Exercise Phase 1 against real test-environment traffic instead of a synthetic corpus. | `BaselineProfiler` fed by a captured UAT request/response corpus; persisted `Baseline`s; deltas computed against real baselines. | per target | ⬜ not started |
 | **M8** | **Polish, reporting, export** | Production-readiness for the demo: usability and auditable output. | Run summaries and severity rollups; ledger export (e.g. report download); UI polish; docs refresh. | any | ⬜ not started |
@@ -48,7 +48,7 @@ graph LR
     M1 --> M2["M2 · FastAPI backend<br/>+ unguarded tile + run API ✅"]
     M2 --> M3["M3 · Frontend slice<br/>tiles grid · run console · ledger viewer ✅"]
     M3 --> M4["M4 · Remaining tiles ✅"]
-    M4 --> M5["M5 · Full attack library<br/>+ bias metrics"]
+    M4 --> M5["M5 · Full attack library<br/>+ bias metrics ✅"]
     M5 --> M6["M6 · AnthropicEngine<br/>then VertexEngine 🔑"]
     M6 --> M7["M7 · Passive learning<br/>vs. real UAT capture"]
     M7 --> M8["M8 · Polish · reporting · export"]
@@ -58,6 +58,7 @@ graph LR
     style M2 fill:#cdeccd,stroke:#2d6a2d
     style M3 fill:#cdeccd,stroke:#2d6a2d
     style M4 fill:#cdeccd,stroke:#2d6a2d
+    style M5 fill:#cdeccd,stroke:#2d6a2d
     style M6 fill:#ffe8b3,stroke:#b37700
 ```
 
@@ -159,7 +160,7 @@ distinct profiles), the M2 backend exposes all four via `GET /tiles` and `POST
 /runs`, and the M3 frontend grid renders all four. No further work is required for
 this milestone.
 
-### M5 — Full attack library + bias metrics ⬜
+### M5 — Full attack library + bias metrics ✅
 
 Populate `attack-library/vectors/` with the full vector set across all four
 categories (`prompt_injection`, `modal_jailbreak`, `data_exfiltration`,
@@ -170,6 +171,15 @@ metrics. Audits report multiple metrics rather than a single verdict, because
 common fairness criteria are mathematically incompatible in general. See
 [attack-library.md](attack-library.md) and
 [bias-and-fairness.md](bias-and-fairness.md).
+
+**Status: implemented.** The library now spans all four categories
+(`attack-library/vectors/` — 6 enabled vectors driving the demo plus 3 staged
+`enabled: false` vectors for real-engine techniques), and the fairness suite —
+mean/max delta, demographic-parity gap, disparate-impact (four-fifths) ratio, and
+flip rate — is computed by [`../devsecbuddy/fairness.py`](../devsecbuddy/fairness.py)
+and recorded in every `bias_fairness` finding's evidence. The four-tile divergence
+now covers `prompt_injection`, `modal_jailbreak`, `data_exfiltration`, and
+`bias_fairness` (`tile-unguarded` → 6 findings, `tile-hardened` → 0); 31 tests pass.
 
 ### M6 — Wire `AnthropicEngine`, then `VertexEngine` ⬜ 🔑 requires external setup
 
@@ -215,19 +225,17 @@ Final readiness pass for the demo and for platform/security audiences:
 
 ## Immediate next follow-on prompts
 
-**M0–M4 are complete** (the docs + structure; the `devsecbuddy` core; the FastAPI
-backend + run/report API; the React frontend vertical slice; and the full four-tile
-ladder). The next prompts:
+**M0–M5 are complete** (the docs + structure; the `devsecbuddy` core; the FastAPI
+backend + run/report API; the React frontend vertical slice; the full four-tile
+ladder; and the broadened attack library + fairness metrics). The next prompts:
 
-1. **M5 — full attack library + bias metrics.** Broaden `attack-library/vectors/`
-   across all four categories and widen the fairness measurement — the counterfactual
-   name-swap probe is already implemented, so M5 expands coverage and the reported
-   metrics. See [attack-library.md](attack-library.md) and
-   [bias-and-fairness.md](bias-and-fairness.md).
-2. **Engine account setup (prerequisite for M6).** Guide the user through creating
-   an **Anthropic API key** and provisioning a **GCP / Vertex AI project**, then
-   capturing those credentials so `AnthropicEngine` and `VertexEngine` can be wired
-   up behind the unchanged `AIEngine` interface — see [ai-engines.md](ai-engines.md).
+1. **Engine account setup → M6.** Set up an **Anthropic API key** and a **GCP /
+   Vertex AI project**, then wire `AnthropicEngine` (then `VertexEngine`) behind the
+   unchanged `AIEngine` interface so the suite can run against real models — see
+   [ai-engines.md](ai-engines.md). (The staged `enabled: false` vectors activate here.)
+2. **M7 — passive learning vs. a real UAT capture.** Feed `BaselineProfiler` a real
+   request/response capture instead of the synthetic clean corpus — see
+   [phases.md](phases.md).
 
 ---
 

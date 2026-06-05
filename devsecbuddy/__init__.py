@@ -11,6 +11,7 @@ from __future__ import annotations
 from .adapters import AppAdapter
 from .attack_library import DEFAULT_VECTORS_DIR, load_vectors
 from .engines import AIEngine, AnthropicEngine, MockEngine, VertexEngine, get_engine
+from .fairness import DEFAULT_SELECTION_THRESHOLD, fairness_metrics
 from .ledger import DEFAULT_DB_PATH, Ledger
 from .models import (
     CATEGORIES,
@@ -46,6 +47,7 @@ __all__ = [
     # phases
     "BaselineProfiler", "AdversarialProber", "Ledger",
     # helpers
-    "load_vectors", "run_assessment", "DEFAULT_VECTORS_DIR", "DEFAULT_DB_PATH",
+    "load_vectors", "run_assessment", "fairness_metrics", "DEFAULT_SELECTION_THRESHOLD",
+    "DEFAULT_VECTORS_DIR", "DEFAULT_DB_PATH",
     "__version__",
 ]

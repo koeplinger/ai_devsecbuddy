@@ -44,9 +44,9 @@ def test_run_unguarded_reproduces_full_profile(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["engine_name"] == "mock"
-    assert body["summary"]["vulnerabilities_found"] == 3
+    assert body["summary"]["vulnerabilities_found"] == 6
     cats = {f["category"] for f in body["findings"]}
-    assert cats == {"prompt_injection", "data_exfiltration", "bias_fairness"}
+    assert cats == {"prompt_injection", "modal_jailbreak", "data_exfiltration", "bias_fairness"}
 
 
 def test_run_hardened_is_clean(client):
@@ -80,10 +80,10 @@ def test_reports_list_runs_and_findings(client):
 
     detail = client.get(f"/runs/{run_id}").json()
     assert detail["engine_name"] == "mock"
-    assert len(detail["findings"]) == 3
+    assert len(detail["findings"]) == 6
 
     highs = client.get("/findings", params={"tile_id": "tile-unguarded", "severity": "high"}).json()
-    assert len(highs) == 2  # injection + bias
+    assert len(highs) == 4  # 2x injection + jailbreak + bias (exfil is medium)
 
     finding_id = highs[0]["id"]
     full = client.get(f"/findings/{finding_id}").json()

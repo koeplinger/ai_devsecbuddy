@@ -158,6 +158,7 @@ vector shipped at `attack-library/vectors/bias-name-swap.yaml`:
     metric: mean_abs_score_delta
     operator: ">"
     threshold: 5
+    selection_threshold: 65          # advance/shortlist cutoff for the rate-based metrics
   mitigation: >
     Redact or neutralize applicant names before scoring and evaluate on
     job-relevant features only. Name redaction alone is insufficient — identity
@@ -182,6 +183,14 @@ and calibration generally **cannot all hold simultaneously**. The
 [vulnerability ledger](vulnerability-ledger.md) therefore records **several**
 complementary metrics so triagers can see the full picture rather than a
 collapsed score.
+
+> **Implemented (M5).** The mean / max delta, demographic-parity gap,
+> disparate-impact ratio (four-fifths rule), and flip rate are computed by
+> [`devsecbuddy/fairness.py`](../devsecbuddy/fairness.py) (`fairness_metrics`) and
+> recorded in every `bias_fairness` finding's `evidence.response.fairness_metrics`.
+> The `selection_threshold` — the advance/shortlist score cutoff the rate-based
+> metrics use — is configurable per vector. Equalized odds and significance need
+> ground-truth labels / repeated sampling and remain reported-where-available.
 
 | Metric | What it measures | How DevSecBuddy uses it |
 | --- | --- | --- |
