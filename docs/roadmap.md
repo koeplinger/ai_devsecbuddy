@@ -31,8 +31,8 @@ The guiding principles:
 | **M0** | **Structure + README + docs** | Canonical repo layout, top-level README, and the full `docs/` set derived from the Design Bible. | `README.md`, `docs/architecture.md`, `docs/phases.md`, `docs/ai-engines.md`, `docs/attack-library.md`, `docs/tiles.md`, `docs/vulnerability-ledger.md`, `docs/bias-and-fairness.md`, `docs/roadmap.md`; folder skeleton (`frontend/`, `backend/`, `devsecbuddy/`, `attack-library/`, `data/`). | n/a | ✅ done |
 | **M1** | **`devsecbuddy` contract + `MockEngine` + SQLite ledger** | Implement the product's core: the public contract, the default engine, and persistence. | `AIEngine` / `AppAdapter` protocols; data models (`AttackVector`, `ProbeResult`, `Finding`, `Baseline`); `BaselineProfiler`, `AdversarialProber`, `Ledger`; `MockEngine`; SQLite schema bootstrap for `data/ledger.db`. | `MockEngine` | ✅ done |
 | **M2** | **FastAPI backend + unguarded tile + run API** | Stand up the backend that hosts a tile and exposes the DevSecBuddy run/report API. | `tile-unguarded` as an `AppAdapter`; FastAPI run/report endpoints; engine selection (Mock default); ledger wiring. | `MockEngine` | ✅ done |
-| **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ⬜ not started |
-| **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ⬜ not started |
+| **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ✅ done |
+| **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ✅ done |
 | **M5** | **Full attack library + bias metrics** | Broaden coverage to the full vector set and fairness measurement. | `attack-library/vectors/*.yaml` across all four categories; counterfactual name-swap probes + bias metrics (score-delta, disparate-impact). | `MockEngine` | ⬜ not started |
 | **M6** | **Wire `AnthropicEngine`, then `VertexEngine`** | Connect the real model adapters behind the existing `AIEngine` interface. **Requires external account setup (see below).** | `AnthropicEngine` (Claude) wired first, then `VertexEngine` (Google Vertex AI); engine picker in UI/run API. | `AnthropicEngine` → `VertexEngine` | ⬜ not started |
 | **M7** | **Passive-learning / baseline phase vs. real UAT capture** | Exercise Phase 1 against real test-environment traffic instead of a synthetic corpus. | `BaselineProfiler` fed by a captured UAT request/response corpus; persisted `Baseline`s; deltas computed against real baselines. | per target | ⬜ not started |
@@ -46,8 +46,8 @@ The guiding principles:
 graph LR
     M0["M0 · Structure + docs ✅"] --> M1["M1 · devsecbuddy contract<br/>+ MockEngine + ledger ✅"]
     M1 --> M2["M2 · FastAPI backend<br/>+ unguarded tile + run API ✅"]
-    M2 --> M3["M3 · Frontend slice<br/>tiles grid · run console · ledger viewer"]
-    M3 --> M4["M4 · Remaining tiles"]
+    M2 --> M3["M3 · Frontend slice<br/>tiles grid · run console · ledger viewer ✅"]
+    M3 --> M4["M4 · Remaining tiles ✅"]
     M4 --> M5["M5 · Full attack library<br/>+ bias metrics"]
     M5 --> M6["M6 · AnthropicEngine<br/>then VertexEngine 🔑"]
     M6 --> M7["M7 · Passive learning<br/>vs. real UAT capture"]
@@ -56,6 +56,8 @@ graph LR
     style M0 fill:#cdeccd,stroke:#2d6a2d
     style M1 fill:#cdeccd,stroke:#2d6a2d
     style M2 fill:#cdeccd,stroke:#2d6a2d
+    style M3 fill:#cdeccd,stroke:#2d6a2d
+    style M4 fill:#cdeccd,stroke:#2d6a2d
     style M6 fill:#ffe8b3,stroke:#b37700
 ```
 
@@ -122,7 +124,7 @@ flow and returns the run summary + findings; 8 API tests pass. Runs are
 synchronous for now — live streaming arrives with the M3 frontend. Run it with
 `uvicorn backend.main:app`; see [`../backend/README.md`](../backend/README.md).
 
-### M3 — Frontend tiles grid + run console + ledger viewer (vertical slice) ⬜
+### M3 — Frontend tiles grid + run console + ledger viewer (vertical slice) ✅
 
 Build the `frontend/` Vite + React + TypeScript client as a thin layer over the
 backend run API, proving the full loop on the single `tile-unguarded` tile:
@@ -134,13 +136,28 @@ backend run API, proving the full loop on the single `tile-unguarded` tile:
 This is the vertical slice: a complete, demonstrable path from tile selection to
 auditable findings.
 
-### M4 — Add the remaining tiles ⬜
+**Status: implemented.** [`../frontend/`](../frontend/) is a Vite + React +
+TypeScript SPA (`src/api.ts` typed client, `App.tsx` shell, and the `TilesGrid` /
+`RunConsole` / `LedgerViewer` / `FindingDetail` components) that builds clean
+(`tsc --noEmit` + `vite build`). It is a thin client over the M2 API — no security
+or engine logic. The run console animates the three phases while the (synchronous)
+run is in flight; real streaming is future polish. Run it with
+`npm --prefix frontend run dev` against a running `uvicorn backend.main:app`; see
+[`../frontend/README.md`](../frontend/README.md).
+
+### M4 — Add the remaining tiles ✅
 
 Add the other three incarnations of the resume scorer so the four-tile ladder is
 complete: `tile-input-sanitized`, `tile-fairness-aware`, and `tile-hardened`.
 The **same** probe suite runs against all four; their differing vulnerability
 profiles demonstrate the payoff of guardrail strength. See [tiles.md](tiles.md)
 for each tile's guardrails, known flaws, and expected profile.
+
+**Status: implemented (delivered alongside M1–M3).** All four tiles were built as
+`AppAdapter`s in `devsecbuddy/demo.py` during M1 (the divergence test asserts their
+distinct profiles), the M2 backend exposes all four via `GET /tiles` and `POST
+/runs`, and the M3 frontend grid renders all four. No further work is required for
+this milestone.
 
 ### M5 — Full attack library + bias metrics ⬜
 
@@ -198,13 +215,15 @@ Final readiness pass for the demo and for platform/security audiences:
 
 ## Immediate next follow-on prompts
 
-**M0, M1 and M2 are complete** (the docs + structure; the `devsecbuddy` core; and
-the FastAPI backend + run/report API, runnable via `uvicorn backend.main:app`).
-The next prompts:
+**M0–M4 are complete** (the docs + structure; the `devsecbuddy` core; the FastAPI
+backend + run/report API; the React frontend vertical slice; and the full four-tile
+ladder). The next prompts:
 
-1. **M3 — frontend vertical slice.** Build the Vite + React + TypeScript client in
-   [`../frontend/`](../frontend/) as a thin layer over the run API: a tiles grid, a
-   run console, and a ledger viewer, proving the full loop on `tile-unguarded`.
+1. **M5 — full attack library + bias metrics.** Broaden `attack-library/vectors/`
+   across all four categories and widen the fairness measurement — the counterfactual
+   name-swap probe is already implemented, so M5 expands coverage and the reported
+   metrics. See [attack-library.md](attack-library.md) and
+   [bias-and-fairness.md](bias-and-fairness.md).
 2. **Engine account setup (prerequisite for M6).** Guide the user through creating
    an **Anthropic API key** and provisioning a **GCP / Vertex AI project**, then
    capturing those credentials so `AnthropicEngine` and `VertexEngine` can be wired

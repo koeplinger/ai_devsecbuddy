@@ -143,7 +143,7 @@ The `devsecbuddy` core and the FastAPI backend run today on the offline `MockEng
 
 ```bash
 pip install -e ".[backend,dev]"   # core + FastAPI/uvicorn/httpx + pytest
-python -m pytest -q               # 27 tests (library + API), incl. the tiles.md divergence table
+python -m pytest -q               # 28 tests (library + API), incl. the tiles.md divergence table
 
 # CLI — run the full three-phase loop on all four tiles:
 python -m devsecbuddy --tile all
@@ -151,6 +151,9 @@ python -m devsecbuddy --tile all
 # API — serve the run/report API (OpenAPI docs at /docs):
 uvicorn backend.main:app --reload
 curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{"tile_id":"tile-unguarded"}'
+
+# UI — the web app (separate shell; needs the API running above):
+npm --prefix frontend install && npm --prefix frontend run dev   # http://localhost:5173
 ```
 
 Both write findings to `data/ledger.db` (gitignored), and the per-tile profile is the same either way: `tile-unguarded` raises three findings (injection, exfiltration, bias), the two middle tiles each raise findings on exactly one axis, and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md) and [backend/README.md](backend/README.md).
@@ -159,7 +162,7 @@ Both write findings to `data/ledger.db` (gitignored), and the per-tile profile i
 
 ## Status & roadmap
 
-AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M2** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — the `AppAdapter` / `AIEngine` contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); and the FastAPI backend that hosts the tiles and exposes the run/report API (M2). The React frontend (M3) is next.
+AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M4** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); the FastAPI backend + run/report API (M2); the Vite + React + TypeScript frontend — tiles grid, run console, ledger viewer (M3); and the full four-tile ladder (M4). Next: broadening the attack library + bias metrics (M5), then wiring the real cloud engines (M6, which needs Anthropic/Vertex account setup).
 
 The model engines are **pluggable** behind the `AIEngine` interface:
 
