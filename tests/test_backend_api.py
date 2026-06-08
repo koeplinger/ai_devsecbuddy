@@ -190,6 +190,16 @@ def test_findings_filter_by_engine(client):
     assert len(high_mock) == 4
 
 
+def test_findings_carry_engine_and_model(client):
+    client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"})
+    findings = client.get("/findings").json()
+    assert findings, "expected findings"
+    # every finding (incl. bias, which has a different snapshot) carries engine + model
+    assert all(f["engine"] == "mock" for f in findings)
+    assert all(f["model"] == "mock-resume-scorer-1" for f in findings)
+    assert any(f["category"] == "bias_fairness" for f in findings)
+
+
 def test_delete_findings_removes_them_permanently(client):
     client.post("/runs", json={"tile_id": "tile-unguarded"})
     findings = client.get("/findings", params={"tile_id": "tile-unguarded"}).json()

@@ -45,6 +45,8 @@ export interface Finding {
   mitigation_guidance: string;
   metric_value: number | null;
   detail: string;
+  engine?: string | null; // engine that produced the finding (mock | anthropic | vertex)
+  model?: string | null; // model id (e.g. gemini-2.5-flash, claude-haiku-4-5)
   // present only on GET /findings/{id}
   repro?: Record<string, unknown>;
   evidence?: Record<string, unknown>;

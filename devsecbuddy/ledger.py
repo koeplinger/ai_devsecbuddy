@@ -148,11 +148,14 @@ class Ledger:
         self.conn.commit()
 
     def record(self, run_id: str, results: list[ProbeResult],
-               vectors: list[AttackVector] | None = None) -> list[Finding]:
+               vectors: list[AttackVector] | None = None,
+               model: str | None = None) -> list[Finding]:
         """Convert *failing* probes (success=True) into Findings and persist them.
 
         Dedupes within a run via UNIQUE(run_id, fingerprint): a repeat of the same
-        underlying vulnerability is ignored rather than duplicated.
+        underlying vulnerability is ignored rather than duplicated. ``model`` (the
+        engine's model id) is stamped into each finding's repro so the ledger can show
+        which model produced it.
         """
         by_id = {v.id: v for v in (vectors or [])}
         row = self.conn.execute("SELECT engine_name FROM runs WHERE run_id = ?", (run_id,)).fetchone()
@@ -182,6 +185,7 @@ class Ledger:
             created_at = now_iso()
             repro = {
                 "engine_name": engine_name,
+                "model": model,
                 "deterministic": engine_name == "mock",
                 "tile_id": r.tile_id,
                 "vector_id": r.vector_id,

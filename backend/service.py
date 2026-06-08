@@ -227,6 +227,9 @@ class AssessmentService:
             "created_at": f.created_at, "mitigation_guidance": f.mitigation_guidance,
             "metric_value": f.evidence.get("metric_value"),
             "detail": f.evidence.get("detail", ""),
+            # engine + model that produced this finding (stamped into repro at record time)
+            "engine": f.repro.get("engine_name"),
+            "model": f.repro.get("model"),
         }
         if full:
             payload["repro"] = f.repro

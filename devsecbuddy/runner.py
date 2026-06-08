@@ -51,7 +51,7 @@ def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
         results = prober.probe(adapter, on_event=emit)
 
         emit({"type": "phase", "phase": "reporting"})
-        findings = ledger.record(run_id, results, vectors=enabled)
+        findings = ledger.record(run_id, results, vectors=enabled, model=_engine_model(adapter))
 
         summary = _summarize(results, findings)
         ledger.close_run(run_id, summary)
@@ -64,6 +64,19 @@ def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
     finally:
         if own_ledger:
             ledger.close()
+
+
+def _engine_model(adapter) -> str | None:
+    """The model id the run's engine reports (e.g. 'gemini-2.5-flash'), recorded on
+    each finding so the ledger can show which model produced it. Best-effort."""
+    engine = getattr(adapter, "engine", None)
+    if engine is None:
+        return None
+    try:
+        model = engine.info().get("model")
+    except Exception:
+        model = None
+    return model or getattr(engine, "model", None)
 
 
 def _summarize(results, findings) -> dict:

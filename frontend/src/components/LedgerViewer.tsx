@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { api, ApiError } from '../api';
 import type { Finding, FindingFilters, Tile } from '../types';
-import { FindingsTable } from './FindingsTable';
+import { LedgerTable } from './LedgerTable';
 import { ConfirmModal } from './ConfirmModal';
 
 const CATEGORIES = ['prompt_injection', 'modal_jailbreak', 'data_exfiltration', 'bias_fairness'];
@@ -110,7 +110,7 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
         </button>
       </div>
       {error && <div className="error">⚠ {error}</div>}
-      {loading ? <p className="empty">Loading…</p> : <FindingsTable findings={findings} onOpen={onOpenFinding} />}
+      {loading ? <p className="empty">Loading…</p> : <LedgerTable findings={findings} onOpen={onOpenFinding} />}
 
       {pendingIds !== null && (
         <ConfirmModal
