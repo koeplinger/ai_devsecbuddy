@@ -190,6 +190,27 @@ def test_findings_filter_by_engine(client):
     assert len(high_mock) == 4
 
 
+def test_delete_findings_removes_them_permanently(client):
+    client.post("/runs", json={"tile_id": "tile-unguarded"})
+    findings = client.get("/findings", params={"tile_id": "tile-unguarded"}).json()
+    assert len(findings) == 6
+
+    ids = [f["id"] for f in findings[:2]]
+    resp = client.request("DELETE", "/findings", json={"ids": ids})
+    assert resp.status_code == 200 and resp.json()["deleted"] == 2
+
+    remaining = client.get("/findings", params={"tile_id": "tile-unguarded"}).json()
+    assert len(remaining) == 4
+    assert {f["id"] for f in remaining}.isdisjoint(ids)        # the right rows went
+
+    # deleting the rest empties the ledger; empty / unknown ids are a safe no-op
+    rest = [f["id"] for f in remaining]
+    assert client.request("DELETE", "/findings", json={"ids": rest}).json()["deleted"] == 4
+    assert client.get("/findings", params={"tile_id": "tile-unguarded"}).json() == []
+    assert client.request("DELETE", "/findings", json={"ids": []}).json()["deleted"] == 0
+    assert client.request("DELETE", "/findings", json={"ids": ["nope"]}).json()["deleted"] == 0
+
+
 def test_reports_list_runs_and_findings(client):
     run = client.post("/runs", json={"tile_id": "tile-unguarded"}).json()
     run_id = run["run_id"]

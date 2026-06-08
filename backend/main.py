@@ -30,6 +30,10 @@ class RunRequest(BaseModel):
     engine_name: str | None = None
 
 
+class DeleteFindingsRequest(BaseModel):
+    ids: list[str]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     service = AssessmentService(settings.db_path, default_engine=settings.engine)
@@ -143,6 +147,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return service.get_finding(finding_id)
         except FindingNotFound:
             raise HTTPException(status_code=404, detail=f"Unknown finding {finding_id!r}")
+
+    @app.delete("/findings", tags=["report"])
+    def delete_findings(req: DeleteFindingsRequest) -> dict:
+        """Permanently delete the listed findings (hard delete). The frontend sends the
+        ids of the findings currently shown after the user confirms in a modal."""
+        return {"deleted": service.delete_findings(req.ids)}
 
     return app
 

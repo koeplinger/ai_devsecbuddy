@@ -593,3 +593,87 @@ h4 {
   color: var(--muted);
   font-size: 0.8rem;
 }
+
+/* ---- danger buttons ---- */
+.btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn.danger:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+.btn.danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn.danger-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--danger);
+}
+.btn.danger-ghost:hover:not(:disabled) {
+  background: #fdeaea;
+}
+.btn.danger-ghost:disabled {
+  color: var(--muted);
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* ---- confirm modal ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  padding: 1rem;
+}
+.modal {
+  width: min(440px, 94vw);
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(16, 24, 40, 0.28);
+  padding: 1.2rem 1.3rem;
+}
+.modal h3 {
+  font-size: 1.05rem;
+  margin-bottom: 0.5rem;
+}
+.modal-body {
+  margin: 0 0 0.9rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+/* ---- run-console details toggle (pill in the summary row) ---- */
+.details-toggle {
+  align-self: center;
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+.details-toggle:hover {
+  background: #eef0ff;
+  border-color: #c7ccf5;
+}
+.details-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

@@ -211,6 +211,11 @@ class AssessmentService:
             raise FindingNotFound(finding_id)
         return self._finding_payload(finding, full=True)
 
+    def delete_findings(self, ids: list[str]) -> int:
+        """Permanently delete the given findings; returns how many were removed."""
+        with Ledger(self.db_path) as ledger:
+            return ledger.delete_ids(ids)
+
     # -- serialization ----------------------------------------------------------
 
     @staticmethod

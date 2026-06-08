@@ -136,4 +136,9 @@ export const api = {
   listFindings: (filters: FindingFilters) =>
     request<Finding[]>(`/findings${queryString(filters as Record<string, string | undefined>)}`),
   getFinding: (id: string) => request<Finding>(`/findings/${encodeURIComponent(id)}`),
+  deleteFindings: (ids: string[]) =>
+    request<{ deleted: number }>('/findings', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    }),
 };

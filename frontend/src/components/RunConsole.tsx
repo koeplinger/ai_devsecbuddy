@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { TileRun } from '../types';
 import { FindingsTable } from './FindingsTable';
 
@@ -53,14 +53,33 @@ function RunCard({
   onDismiss: (tileId: string) => void;
 }) {
   const logRef = useRef<HTMLPreElement | null>(null);
-  // Keep the live log pinned to the newest line.
+  // Details are shown live while a run is in flight; once it completes they collapse
+  // behind a "Show details" pill in the summary row.
+  const [expanded, setExpanded] = useState(false);
+  const showLog = run.status === 'running' || run.status === 'error' || expanded;
+
+  // Keep the log pinned to the newest line (live, and when re-expanded after a run).
   useEffect(() => {
     const el = logRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [run.lines]);
+  }, [run.lines, showLog]);
 
   const statusLabel =
     run.status === 'running' ? 'running' : run.status === 'done' ? 'complete' : 'error';
+  const logId = `run-log-${run.tileId}`;
+  const logBox = (
+    <pre
+      className="run-log"
+      id={logId}
+      ref={logRef}
+      role="log"
+      aria-live="polite"
+      aria-atomic="false"
+      aria-label={`Progress log for ${run.tileName}`}
+    >
+      {run.lines.join('\n')}
+    </pre>
+  );
 
   return (
     <article className={`run-card run-${run.status}`}>
@@ -90,16 +109,9 @@ function RunCard({
         </p>
       )}
 
-      <pre
-        className="run-log"
-        ref={logRef}
-        role="log"
-        aria-live="polite"
-        aria-atomic="false"
-        aria-label={`Progress log for ${run.tileName}`}
-      >
-        {run.lines.join('\n')}
-      </pre>
+      {/* Live log while running or on error; the completed card collapses it behind
+          the Show/Hide details toggle in the summary row below. */}
+      {(run.status === 'running' || run.status === 'error') && logBox}
 
       {run.status === 'error' && run.error && <div className="error">⚠ {run.error}</div>}
 
@@ -113,7 +125,18 @@ function RunCard({
               tone={run.result.summary.vulnerabilities_found > 0 ? 'danger' : 'ok'}
             />
             <Stat label="Passed" value={String(run.result.summary.probes_passed)} tone="ok" />
+            <button
+              type="button"
+              className="details-toggle"
+              aria-expanded={expanded}
+              // only reference the log when it's actually in the DOM (expanded)
+              {...(expanded ? { 'aria-controls': logId } : {})}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? 'Hide details' : 'Show details'}
+            </button>
           </div>
+          {expanded && logBox}
           <p className="run-id">
             run <code>{run.result.run_id}</code>
           </p>

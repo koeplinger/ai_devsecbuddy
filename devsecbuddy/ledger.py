@@ -254,6 +254,23 @@ class Ledger:
         row = self.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,)).fetchone()
         return _row_to_finding(row) if row else None
 
+    def delete_ids(self, ids: list[str]) -> int:
+        """Permanently delete findings by id; returns the number of rows removed.
+
+        This is a hard delete (the auditable status lifecycle — false_positive /
+        accepted_risk — is the *non*-destructive path). The backend exposes it so an
+        operator can purge a filtered set of findings from the ledger.
+        """
+        ids = [i for i in ids if i]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = self.conn.execute(
+            f"DELETE FROM findings WHERE finding_id IN ({placeholders})", ids
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     def list_runs(self, tile_id: str | None = None, limit: int = 100) -> list[dict]:
         sql, params = "SELECT * FROM runs", []
         if tile_id:

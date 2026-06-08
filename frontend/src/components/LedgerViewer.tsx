@@ -3,6 +3,7 @@ import type { ChangeEvent } from 'react';
 import { api, ApiError } from '../api';
 import type { Finding, FindingFilters, Tile } from '../types';
 import { FindingsTable } from './FindingsTable';
+import { ConfirmModal } from './ConfirmModal';
 
 const CATEGORIES = ['prompt_injection', 'modal_jailbreak', 'data_exfiltration', 'bias_fairness'];
 const SEVERITIES = ['info', 'low', 'medium', 'high', 'critical'];
@@ -23,6 +24,13 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+
+  // Snapshot of the ids to delete, captured when the user clicks Delete — so a filter
+  // change while the modal is open can't drift the count shown from the rows deleted.
+  const [pendingIds, setPendingIds] = useState<string[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Keep the engine filter tracking the Tiles-tab selection as it changes. Return
   // the same state object when nothing changes, so this doesn't trigger a re-fetch.
@@ -49,17 +57,35 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
     return () => {
       cancelled = true;
     };
-  }, [filters, refreshKey]);
+  }, [filters, refreshKey, reload]);
 
   const set = (key: keyof FindingFilters) => (e: ChangeEvent<HTMLSelectElement>) =>
     setFilters((prev) => ({ ...prev, [key]: e.target.value || undefined }));
+
+  const onConfirmDelete = () => {
+    if (!pendingIds) return;
+    setDeleting(true);
+    setDeleteError(null);
+    api
+      .deleteFindings(pendingIds)
+      .then(() => {
+        setPendingIds(null);
+        setReload((k) => k + 1); // re-fetch the (now-empty for these filters) ledger
+      })
+      .catch((e: unknown) => {
+        setDeleteError(e instanceof ApiError ? e.message : String(e));
+      })
+      .finally(() => setDeleting(false));
+  };
+
+  const count = findings.length;
 
   return (
     <section className="panel">
       <div className="panel-head">
         <h2>Vulnerability ledger</h2>
         <span className="count">
-          {findings.length} finding{findings.length === 1 ? '' : 's'}
+          {count} finding{count === 1 ? '' : 's'}
         </span>
       </div>
       <div className="filters">
@@ -71,9 +97,38 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
         <button className="btn ghost" onClick={() => setFilters({ engine: defaultEngine || undefined })}>
           Clear filters
         </button>
+        <button
+          className="btn danger-ghost"
+          onClick={() => {
+            setDeleteError(null);
+            setPendingIds(findings.map((f) => f.id)); // snapshot exactly what's shown now
+          }}
+          disabled={count === 0 || loading || !!error}
+          title={count === 0 ? 'No findings to delete' : 'Permanently delete the findings shown'}
+        >
+          Delete{count > 0 ? ` (${count})` : ''}
+        </button>
       </div>
       {error && <div className="error">⚠ {error}</div>}
       {loading ? <p className="empty">Loading…</p> : <FindingsTable findings={findings} onOpen={onOpenFinding} />}
+
+      {pendingIds !== null && (
+        <ConfirmModal
+          title={`Delete ${pendingIds.length} finding${pendingIds.length === 1 ? '' : 's'}?`}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete permanently'}
+          danger
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => setPendingIds(null)}
+          onConfirm={onConfirmDelete}
+        >
+          This permanently removes{' '}
+          {pendingIds.length === 1
+            ? 'this finding'
+            : `all ${pendingIds.length} findings currently shown`}{' '}
+          from the vulnerability ledger. This cannot be undone.
+        </ConfirmModal>
+      )}
     </section>
   );
 }
