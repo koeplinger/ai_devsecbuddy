@@ -137,10 +137,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         owasp_ref: str | None = None,
         vector_id: str | None = None,
         engine: str | None = None,
+        model: str | None = None,
     ) -> list[dict]:
         return service.list_findings(
             tile_id=tile_id, category=category, severity=severity,
-            status=status, owasp_ref=owasp_ref, vector_id=vector_id, engine=engine,
+            status=status, owasp_ref=owasp_ref, vector_id=vector_id,
+            engine=engine, model=model,
         )
 
     @app.get("/findings/{finding_id}", tags=["report"])

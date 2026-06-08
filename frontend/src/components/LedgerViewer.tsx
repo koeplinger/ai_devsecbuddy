@@ -12,12 +12,20 @@ const STATUSES = ['open', 'triaged', 'mitigated', 'accepted_risk', 'false_positi
 interface Props {
   tiles: Tile[];
   engineNames: string[];
+  modelNames: string[];
   defaultEngine: string;
   refreshKey: number;
   onOpenFinding: (id: string) => void;
 }
 
-export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, onOpenFinding }: Props) {
+export function LedgerViewer({
+  tiles,
+  engineNames,
+  modelNames,
+  defaultEngine,
+  refreshKey,
+  onOpenFinding,
+}: Props) {
   // The engine filter defaults to whatever engine is selected on the "Tiles & runs"
   // tab, so the ledger opens showing the same engine's findings.
   const [filters, setFilters] = useState<FindingFilters>({ engine: defaultEngine || undefined });
@@ -90,6 +98,7 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
       </div>
       <div className="filters">
         <Filter label="Engine" value={filters.engine} onChange={set('engine')} options={engineNames} />
+        <Filter label="Model" value={filters.model} onChange={set('model')} options={modelNames} />
         <Filter label="Tile" value={filters.tile_id} onChange={set('tile_id')} options={tiles.map((t) => t.tile_id)} />
         <Filter label="Category" value={filters.category} onChange={set('category')} options={CATEGORIES} />
         <Filter label="Severity" value={filters.severity} onChange={set('severity')} options={SEVERITIES} />

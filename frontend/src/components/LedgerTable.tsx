@@ -20,20 +20,20 @@ interface Column {
   sortValue: (f: Finding) => string | number;
 }
 
-// Column order intentionally mirrors the ledger filter order (Engine, Tile, Category,
-// Severity, Status), with Model first and the non-filter columns after.
+// Column order mirrors the ledger filter order (Engine, Model, Tile, Category,
+// Severity, Status), with the non-filter columns after.
 const COLUMNS: Column[] = [
-  {
-    key: 'model',
-    label: 'Model',
-    render: (f) => <code>{f.model ?? '—'}</code>,
-    sortValue: (f) => (f.model ?? '').toLowerCase(),
-  },
   {
     key: 'engine',
     label: 'Engine',
     render: (f) => <code>{f.engine ?? '—'}</code>,
     sortValue: (f) => (f.engine ?? '').toLowerCase(),
+  },
+  {
+    key: 'model',
+    label: 'Model',
+    render: (f) => <code>{f.model ?? '—'}</code>,
+    sortValue: (f) => (f.model ?? '').toLowerCase(),
   },
   {
     key: 'tile',

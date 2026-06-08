@@ -211,6 +211,18 @@ def test_findings_filter_by_engine(client):
     assert len(high_mock) == 4
 
 
+def test_findings_filter_by_model(client):
+    client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"})
+    # model lives in the finding's repro JSON; the filter matches it post-query
+    on_model = client.get("/findings", params={"model": "mock-resume-scorer-1"}).json()
+    assert len(on_model) == 6
+    assert client.get("/findings", params={"model": "gemini-2.5-pro"}).json() == []
+    # model combines with engine + column filters
+    combined = client.get("/findings", params={"engine": "mock", "model": "mock-resume-scorer-1",
+                                               "severity": "high"}).json()
+    assert len(combined) == 4
+
+
 def test_findings_carry_engine_and_model(client):
     client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"})
     findings = client.get("/findings").json()

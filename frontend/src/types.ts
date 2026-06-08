@@ -104,6 +104,7 @@ export interface FindingFilters {
   owasp_ref?: string;
   vector_id?: string;
   engine?: string;
+  model?: string;
 }
 
 // ---- streaming run progress (NDJSON events from POST /runs/stream) ----

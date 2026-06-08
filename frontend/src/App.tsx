@@ -209,6 +209,10 @@ export function App() {
     [runs],
   );
   const engineNames = useMemo(() => engines.map((e) => e.name), [engines]);
+  const modelNames = useMemo(
+    () => [...new Set(engines.flatMap((e) => e.models ?? []).map((m) => m.id))],
+    [engines],
+  );
 
   return (
     <div className="app">
@@ -272,6 +276,7 @@ export function App() {
               <LedgerViewer
                 tiles={tiles}
                 engineNames={engineNames}
+                modelNames={modelNames}
                 defaultEngine={selectedEngine}
                 refreshKey={ledgerRefreshKey}
                 onOpenFinding={setSelectedFindingId}

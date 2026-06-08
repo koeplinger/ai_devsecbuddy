@@ -237,6 +237,7 @@ class Ledger:
         # ``engine`` is not a findings column — it lives on the parent run, so it
         # filters via a join on runs.engine_name (docs/vulnerability-ledger.md).
         engine = filters.get("engine") or filters.get("engine_name")
+        model = filters.get("model")
         clauses, params = [], []
         for column in _FILTERABLE:
             if filters.get(column) is not None:
@@ -252,7 +253,11 @@ class Ledger:
             sql += " WHERE " + " AND ".join(clauses)
         sql += " ORDER BY f.created_at DESC, f.finding_id"
         rows = self.conn.execute(sql, params).fetchall()
-        return [_row_to_finding(row) for row in rows]
+        findings = [_row_to_finding(row) for row in rows]
+        if model is not None:
+            # ``model`` is stamped into the repro JSON (not a column), so filter post-hoc.
+            findings = [f for f in findings if (f.repro or {}).get("model") == model]
+        return findings
 
     def get_finding(self, finding_id: str) -> Finding | None:
         row = self.conn.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,)).fetchone()
