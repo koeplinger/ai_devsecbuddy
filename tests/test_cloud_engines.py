@@ -169,6 +169,26 @@ def test_vertex_model_override_and_thinking_only_on_2_5():
     assert call["config"].thinking_config is None  # thinking_config only set for gemini-2.5*
 
 
+def test_vertex_pro_keeps_thinking_with_output_headroom():
+    pytest.importorskip("google.genai")
+    client = _FakeGeminiClient()
+    VertexEngine(client=client, project="p", region="us-east1", model="gemini-2.5-pro").complete(
+        "s", "p", EngineParams(max_tokens=256))
+    cfg = client.calls[0]["config"]
+    assert cfg.thinking_config.thinking_budget == 128   # Pro can't disable thinking (>= 128)
+    assert cfg.max_output_tokens >= 512                  # headroom so the short answer survives
+
+
+def test_engine_model_catalogs_expose_low_mid_high_tiers():
+    a = {m["tier"]: m["id"] for m in AnthropicEngine().info()["models"]}
+    assert a == {"low": "claude-haiku-4-5", "mid": "claude-sonnet-4-6", "high": "claude-opus-4-8"}
+    v = {m["tier"]: m["id"] for m in VertexEngine().info()["models"]}
+    assert set(v) == {"low", "mid", "high"} and v["high"] == "gemini-2.5-pro"
+    # a selected model is honored and reflected by info() (-> recorded on the finding)
+    assert AnthropicEngine(model="claude-opus-4-8").info()["model"] == "claude-opus-4-8"
+    assert VertexEngine(model="gemini-2.5-pro").info()["model"] == "gemini-2.5-pro"
+
+
 def test_unconfigured_engines_raise_clear_error():
     # no injected client, no SDK/credentials in this env -> EngineNotConfigured (not a 500)
     with pytest.raises(EngineNotConfigured):

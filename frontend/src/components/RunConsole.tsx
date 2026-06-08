@@ -91,6 +91,7 @@ function RunCard({
           </span>
           <strong>{run.tileName}</strong>
           <span className="badge category">{run.engine}</span>
+          {run.model && <span className="badge category">{run.model}</span>}
         </div>
         <button
           className="btn ghost run-dismiss"

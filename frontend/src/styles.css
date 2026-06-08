@@ -162,6 +162,12 @@ h4 {
 }
 
 /* ---- tiles ---- */
+.engine-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
 .engine-select {
   display: flex;
   align-items: center;
@@ -232,6 +238,13 @@ h4 {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+}
+.btn.pill {
+  border-radius: 999px;
+}
+.assess-all {
+  align-self: flex-end;
+  white-space: nowrap;
 }
 .btn.primary:hover {
   filter: brightness(1.05);

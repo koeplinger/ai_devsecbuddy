@@ -224,10 +224,12 @@ adapter is unit-tested without a key; absent a key or the SDK it raises a clear
 - **`name`:** `"anthropic"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False` — real Claude models
   sample; runs against this engine are live evidence, not deterministic fixtures.
-- **Model ids (current):** the default is **`claude-haiku-4-5`** (cheapest); pick
-  another such as **`claude-sonnet-4-6`** or **`claude-opus-4-8`** via the engine's
-  `model=` constructor argument, the **`DEVSECBUDDY_ANTHROPIC_MODEL`** environment
-  variable, or per-request via `EngineParams.extra["model"]`.
+- **Model ids (selectable, low → high tier):** **`claude-haiku-4-5`** (low,
+  default), **`claude-sonnet-4-6`** (mid), **`claude-opus-4-8`** (high). The catalog
+  is returned by `info()["models"]` and offered in the UI's Model selector; the
+  default comes from **`DEVSECBUDDY_ANTHROPIC_MODEL`** (or the engine's `model=`
+  argument, or per-request `EngineParams.extra["model"]`). Higher tiers cost more.
+  Opus 4.7/4.8 reject sampling params, so the adapter drops `temperature` for them.
 - **Auth:** an **`ANTHROPIC_API_KEY`** environment variable.
 - **Recommended:** enable **prompt caching**. The system prompt / rubric and the
   attack-library framing are largely constant across a probe run, so caching the
@@ -251,10 +253,12 @@ absent those it raises `EngineNotConfigured`.
 
 - **`name`:** `"vertex"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False`.
-- **Model:** a **Gemini model id** (default `gemini-2.5-flash`). Per-request override
-  via `EngineParams.extra["model"]`. For 2.5-series models the adapter sets
-  `thinking_budget=0` so the bounded token budget goes to the answer, not hidden
-  reasoning.
+- **Model ids (selectable, low → high tier):** **`gemini-2.5-flash-lite`** (low),
+  **`gemini-2.5-flash`** (mid, default), **`gemini-2.5-pro`** (high) — from
+  `info()["models"]`, offered in the UI's Model selector; default from
+  **`DEVSECBUDDY_VERTEX_MODEL`**. Higher tiers cost more. Flash / Flash-Lite disable
+  "thinking" (`thinking_budget=0`) so the budget goes to the answer; Pro can't disable
+  it, so the adapter caps it (`128`) and adds output headroom.
 - **Project / region:** a **GCP project id** and a **region** serving the model
   (default `us-central1`; `us-east1` and `global` also work — see the locations note
   in the setup doc).

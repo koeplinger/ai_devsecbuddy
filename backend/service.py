@@ -34,6 +34,10 @@ class UnknownEngine(ValueError):
     """A client-supplied or misconfigured engine name that does not exist -> 400."""
 
 
+class UnknownModel(ValueError):
+    """A client-supplied model that is not in the selected engine's catalog -> 400."""
+
+
 class RunNotFound(KeyError):
     pass
 
@@ -48,6 +52,21 @@ class TileBusy(RuntimeError):
     The product invariant is "one live assessment run per tile" — multiple tiles may
     run concurrently, but a single tile serializes its runs.
     """
+
+
+def _validate_model(engine, model: str | None) -> None:
+    """Reject a client-supplied model that the engine doesn't offer (-> 400), so a typo
+    fails fast with a clear message instead of a confusing provider error mid-run. Only
+    the *client-supplied* model is checked; an absent model uses the engine's own
+    (env-configured) default, which is intentionally not constrained to the catalog."""
+    if not model:
+        return
+    catalog = {m["id"] for m in engine.info().get("models", [])}
+    if catalog and model not in catalog:
+        raise UnknownModel(
+            f"model {model!r} is not offered by engine {engine.name!r}; "
+            f"choose one of {sorted(catalog)}"
+        )
 
 
 class AssessmentService:
@@ -74,14 +93,16 @@ class AssessmentService:
 
     # -- run lifecycle ----------------------------------------------------------
 
-    def run(self, tile_id: str, engine_name: str | None = None) -> dict:
+    def run(self, tile_id: str, engine_name: str | None = None,
+            model: str | None = None) -> dict:
         if tile_id not in TILES:
             raise TileNotFound(tile_id)
         resolved = (engine_name or self.default_engine).lower()
         try:
-            chosen = get_engine(resolved)             # unknown name -> ValueError
+            chosen = get_engine(resolved, model=model)  # unknown name -> ValueError
         except ValueError as exc:
             raise UnknownEngine(str(exc)) from exc     # client/config error -> 400
+        _validate_model(chosen, model)                 # unknown model -> 400
 
         adapter = TILES[tile_id](chosen)
         vectors = load_vectors(enabled_only=True)
@@ -102,7 +123,8 @@ class AssessmentService:
             "findings": [self._finding_payload(f) for f in out["findings"]],
         }
 
-    def run_stream(self, tile_id: str, engine_name: str | None = None) -> Iterator[str]:
+    def run_stream(self, tile_id: str, engine_name: str | None = None,
+                   model: str | None = None) -> Iterator[str]:
         """Run an assessment, streaming progress as newline-delimited JSON (NDJSON).
 
         Returns a generator of ``"<json>\\n"`` lines the HTTP layer hands to a
@@ -122,9 +144,10 @@ class AssessmentService:
             raise TileNotFound(tile_id)
         resolved = (engine_name or self.default_engine).lower()
         try:
-            get_engine(resolved)                      # unknown name -> ValueError
+            chosen = get_engine(resolved, model=model)  # unknown name -> ValueError
         except ValueError as exc:
             raise UnknownEngine(str(exc)) from exc     # client/config error -> 400
+        _validate_model(chosen, model)                 # unknown model -> 400 (before streaming)
 
         # Reserve the tile (one live run per tile). Released in the worker's finally,
         # which always runs once the thread starts — even if the client disconnects.
@@ -144,7 +167,7 @@ class AssessmentService:
             ledger = None
             try:
                 ledger = Ledger(self.db_path)
-                adapter = TILES[tile_id](get_engine(resolved))
+                adapter = TILES[tile_id](get_engine(resolved, model=model))
                 vectors = load_vectors(enabled_only=True)
                 out = run_assessment(adapter, vectors, CLEAN_CORPUS, ledger=ledger,
                                      engine_name=resolved, on_event=events.put)

@@ -22,12 +22,14 @@ from .service import (
     TileBusy,
     TileNotFound,
     UnknownEngine,
+    UnknownModel,
 )
 
 
 class RunRequest(BaseModel):
     tile_id: str
     engine_name: str | None = None
+    model: str | None = None
 
 
 class DeleteFindingsRequest(BaseModel):
@@ -81,10 +83,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/runs", tags=["runs"], status_code=201)
     def create_run(req: RunRequest) -> dict:
         try:
-            return service.run(req.tile_id, req.engine_name)
+            return service.run(req.tile_id, req.engine_name, req.model)
         except TileNotFound:
             raise HTTPException(status_code=404, detail=f"Unknown tile {req.tile_id!r}")
-        except UnknownEngine as exc:
+        except (UnknownEngine, UnknownModel) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except EngineNotConfigured as exc:        # implemented but missing SDK/credentials
             raise HTTPException(status_code=503, detail=str(exc))
@@ -101,10 +103,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         per-tile run console renders these as they arrive.
         """
         try:
-            lines = service.run_stream(req.tile_id, req.engine_name)
+            lines = service.run_stream(req.tile_id, req.engine_name, req.model)
         except TileNotFound:
             raise HTTPException(status_code=404, detail=f"Unknown tile {req.tile_id!r}")
-        except UnknownEngine as exc:
+        except (UnknownEngine, UnknownModel) as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         except TileBusy as exc:
             raise HTTPException(status_code=409, detail=str(exc))

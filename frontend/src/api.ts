@@ -58,10 +58,10 @@ export const api = {
   health: () => request<Health>('/health'),
   tiles: () => request<Tile[]>('/tiles'),
   engines: () => request<EngineInfo[]>('/engines'),
-  createRun: (tile_id: string, engine_name?: string) =>
+  createRun: (tile_id: string, engine_name?: string, model?: string) =>
     request<RunResult>('/runs', {
       method: 'POST',
-      body: JSON.stringify({ tile_id, engine_name }),
+      body: JSON.stringify({ tile_id, engine_name, model }),
     }),
   // Stream a run as NDJSON, invoking onEvent for each progress event. Resolves when
   // the stream ends; rejects (ApiError) on a non-2xx start (404/400/409) or a network
@@ -69,6 +69,7 @@ export const api = {
   streamRun: async (
     tile_id: string,
     engine_name: string | undefined,
+    model: string | undefined,
     onEvent: (event: RunEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> => {
@@ -77,7 +78,7 @@ export const api = {
       res = await fetch(`${BASE}/runs/stream`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tile_id, engine_name }),
+        body: JSON.stringify({ tile_id, engine_name, model }),
         signal,
       });
     } catch (err) {

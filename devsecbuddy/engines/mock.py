@@ -73,6 +73,7 @@ class MockEngine:
         return {
             "name": self.name,
             "model": self.model,
+            "models": [{"id": self.model, "tier": "n/a", "label": "Mock resume scorer"}],
             "deterministic": True,
             "offline": True,
             "implemented": True,

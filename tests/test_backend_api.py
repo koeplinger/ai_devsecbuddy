@@ -59,6 +59,27 @@ def test_engines_reports_mock_default_and_cloud_implemented_unconfigured(client)
     assert engines["vertex"]["configured"] is False
 
 
+def test_engines_expose_model_catalogs(client):
+    engines = {e["name"]: e for e in client.get("/engines").json()}
+    a = engines["anthropic"]["models"]
+    assert [m["tier"] for m in a] == ["low", "mid", "high"]
+    assert {m["id"] for m in a} == {"claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"}
+    v = engines["vertex"]["models"]
+    assert {m["id"] for m in v} == {"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"}
+    # a catalog model is accepted; an unknown one is rejected up front with a clear 400
+    ok = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock",
+                                    "model": "mock-resume-scorer-1"})
+    assert ok.status_code == 201
+    bad = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock", "model": "nope"})
+    assert bad.status_code == 400
+    # model is validated against the engine's catalog *before* the configured/503 check
+    bad2 = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "anthropic",
+                                      "model": "claude-nope"})
+    assert bad2.status_code == 400
+    assert client.post("/runs/stream", json={"tile_id": "tile-unguarded", "engine_name": "mock",
+                                             "model": "nope"}).status_code == 400
+
+
 def test_run_unguarded_reproduces_full_profile(client):
     resp = client.post("/runs", json={"tile_id": "tile-unguarded"})
     assert resp.status_code == 201

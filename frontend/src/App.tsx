@@ -68,6 +68,7 @@ export function App() {
 
   const [tab, setTab] = useState<Tab>('runs');
   const [selectedEngine, setSelectedEngine] = useState('mock');
+  const [selectedModel, setSelectedModel] = useState('');
 
   // One run per tile, keyed by tile_id; multiple may be 'running' at once.
   const [runs, setRuns] = useState<Record<string, TileRun>>({});
@@ -91,7 +92,10 @@ export function App() {
         const def =
           e.find((x) => x.default && x.configured !== false) ??
           e.find((x) => x.configured !== false);
-        if (def) setSelectedEngine(def.name);
+        if (def) {
+          setSelectedEngine(def.name);
+          setSelectedModel(def.model ?? '');
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled) setBootError(e instanceof ApiError ? e.message : String(e));
@@ -109,6 +113,16 @@ export function App() {
     };
   }, []);
 
+  // Switching engine resets the model to that engine's default.
+  const onSelectEngine = useCallback(
+    (name: string) => {
+      setSelectedEngine(name);
+      const eng = engines.find((e) => e.name === name);
+      setSelectedModel(eng?.model ?? '');
+    },
+    [engines],
+  );
+
   const onRun = useCallback(
     (tileId: string) => {
       const tile = tiles.find((t) => t.tile_id === tileId);
@@ -122,15 +136,22 @@ export function App() {
       aborters.current[tileId] = controller;
 
       const engine = selectedEngine;
+      const eng = engines.find((e) => e.name === engine);
+      // Pin the model to the engine's catalog so the captured/displayed model is never
+      // a stale value from a previous engine (the backend also rejects unknown models).
+      const model = eng?.models?.some((m) => m.id === selectedModel)
+        ? selectedModel
+        : (eng?.model ?? '');
       setRuns((prev) => ({
         ...prev,
         [tileId]: {
           tileId,
           tileName: tile?.name ?? tileId,
           engine,
+          model,
           status: 'running',
           startedAt: Date.now(),
-          lines: [`connecting to ${engine} engine…`],
+          lines: [`connecting to ${engine}${model ? ` · ${model}` : ''}…`],
         },
       }));
 
@@ -141,6 +162,7 @@ export function App() {
         .streamRun(
           tileId,
           engine,
+          model,
           (ev) => {
             update((run) => applyEvent(run, ev));
             if (ev.type === 'result') setLedgerRefreshKey((k) => k + 1);
@@ -163,7 +185,7 @@ export function App() {
           if (aborters.current[tileId] === controller) delete aborters.current[tileId];
         });
     },
-    [selectedEngine, tiles],
+    [selectedEngine, selectedModel, engines, tiles],
   );
 
   const onDismissRun = useCallback((tileId: string) => {
@@ -234,7 +256,9 @@ export function App() {
                   tiles={tiles}
                   engines={engines}
                   selectedEngine={selectedEngine}
-                  onSelectEngine={setSelectedEngine}
+                  onSelectEngine={onSelectEngine}
+                  selectedModel={selectedModel}
+                  onSelectModel={setSelectedModel}
                   onRun={onRun}
                   runningTiles={runningTiles}
                 />

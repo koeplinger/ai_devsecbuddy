@@ -94,7 +94,7 @@ export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, on
         <Filter label="Category" value={filters.category} onChange={set('category')} options={CATEGORIES} />
         <Filter label="Severity" value={filters.severity} onChange={set('severity')} options={SEVERITIES} />
         <Filter label="Status" value={filters.status} onChange={set('status')} options={STATUSES} />
-        <button className="btn ghost" onClick={() => setFilters({ engine: defaultEngine || undefined })}>
+        <button className="btn ghost" onClick={() => setFilters({})}>
           Clear filters
         </button>
         <button

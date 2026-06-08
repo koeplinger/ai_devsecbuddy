@@ -30,6 +30,20 @@ GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
 # Opus 4.7/4.8 reject sampling params (temperature/top_p/top_k) — drop them there.
 _NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
 
+# Selectable models per provider, low -> high tier. The UI offers these; any one is a
+# valid DEVSECBUDDY_*_MODEL default. Real models are non-deterministic and higher tiers
+# cost more — see each provider's pricing page (docs/setup/).
+ANTHROPIC_MODELS = (
+    {"id": "claude-haiku-4-5", "tier": "low", "label": "Claude Haiku 4.5"},
+    {"id": "claude-sonnet-4-6", "tier": "mid", "label": "Claude Sonnet 4.6"},
+    {"id": "claude-opus-4-8", "tier": "high", "label": "Claude Opus 4.8"},
+)
+GEMINI_MODELS = (
+    {"id": "gemini-2.5-flash-lite", "tier": "low", "label": "Gemini 2.5 Flash-Lite"},
+    {"id": "gemini-2.5-flash", "tier": "mid", "label": "Gemini 2.5 Flash"},
+    {"id": "gemini-2.5-pro", "tier": "high", "label": "Gemini 2.5 Pro"},
+)
+
 
 class EngineNotConfigured(RuntimeError):
     """A real engine is implemented but its SDK or credentials are not available."""
@@ -106,11 +120,15 @@ def _gemini_complete(client, model: str, system: str, prompt: str,
         config_kwargs["seed"] = params.seed             # Vertex supports a sampling seed
     if params.stop:
         config_kwargs["stop_sequences"] = list(params.stop)
-    # Gemini 2.5 "thinking" models spend output tokens on hidden reasoning. For a bounded
-    # scoring task we turn it off so the token budget goes to the answer (and runs are
-    # cheaper / steadier). Only valid on 2.5-series models.
-    if model.startswith("gemini-2.5"):
+    # Gemini 2.5 "thinking" models spend output tokens on hidden reasoning. For this
+    # bounded scoring task we want the budget on the answer: Flash / Flash-Lite let us
+    # turn thinking off (budget 0); Pro can't disable it (budget must be >= 128), so we
+    # cap it low and leave output headroom so the short answer isn't truncated.
+    if model.startswith("gemini-2.5-flash"):
         config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+    elif model.startswith("gemini-2.5-pro"):
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=128)
+        config_kwargs["max_output_tokens"] = max(params.max_tokens, 512)
 
     started = time.perf_counter()
     response = client.models.generate_content(
@@ -200,6 +218,7 @@ class AnthropicEngine:
             "implemented": True,
             "configured": self.configured(),
             "model": self.model,
+            "models": [dict(m) for m in ANTHROPIC_MODELS],
             "requires": ["ANTHROPIC_API_KEY", "the anthropic SDK"],
             "roadmap": "M6",
         }
@@ -261,6 +280,7 @@ class VertexEngine:
             "implemented": True,
             "configured": self.configured(),
             "model": self.model,
+            "models": [dict(m) for m in GEMINI_MODELS],
             "project": self.project,
             "region": self.region,
             "requires": ["a GCP project + region", "the Vertex AI API enabled",

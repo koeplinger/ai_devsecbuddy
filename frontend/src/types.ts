@@ -18,6 +18,12 @@ export interface Tile {
   guardrails: string[];
 }
 
+export interface ModelInfo {
+  id: string;
+  tier: string; // low | mid | high | n/a
+  label: string;
+}
+
 export interface EngineInfo {
   name: string;
   implemented?: boolean;
@@ -26,6 +32,8 @@ export interface EngineInfo {
   default?: boolean;
   offline?: boolean;
   provider?: string;
+  model?: string; // the engine's default/current model id
+  models?: ModelInfo[]; // selectable models (low -> high tier)
   requires?: string[];
   roadmap?: string;
 }
@@ -139,6 +147,7 @@ export interface TileRun {
   tileId: string;
   tileName: string;
   engine: string;
+  model: string;
   status: 'running' | 'done' | 'error';
   startedAt: number;
   // human-readable progress log lines, appended as events arrive
