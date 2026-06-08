@@ -1,12 +1,64 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
-import type { EngineInfo, Health, RunResult, Tile } from './types';
+import type { EngineInfo, Health, RunEvent, Tile, TileRun } from './types';
 import { TilesGrid } from './components/TilesGrid';
 import { RunConsole } from './components/RunConsole';
 import { LedgerViewer } from './components/LedgerViewer';
 import { FindingDetail } from './components/FindingDetail';
 
 type Tab = 'runs' | 'ledger';
+
+// Fold one streaming event into a tile's run state, appending a human-readable
+// progress line. Pure — the backend (devsecbuddy/runner.py) is the source of truth
+// for ordering; this only formats what arrives.
+function applyEvent(run: TileRun, ev: RunEvent): TileRun {
+  const withLine = (line: string, patch: Partial<TileRun> = {}): TileRun => ({
+    ...run,
+    ...patch,
+    lines: [...run.lines, line],
+  });
+  switch (ev.type) {
+    case 'run_started':
+      return withLine(`▶ Run started — ${ev.total_probes} probes · engine ${ev.engine_name}`, {
+        totalProbes: ev.total_probes,
+      });
+    case 'phase':
+      if (ev.phase === 'baseline')
+        return withLine('① Passive learning — building behavioural baseline…');
+      if (ev.phase === 'probing')
+        return withLine(`② Active probing — ${run.totalProbes ?? ''} attack vectors…`.trim());
+      return withLine('③ Actionable reporting — recording findings…');
+    case 'baseline_done':
+      return withLine(`   baseline captured · ${ev.sample_count} clean samples`);
+    case 'probe_started':
+      return withLine(`   ▸ ${ev.index}/${ev.total}  ${ev.vector_id} (${ev.category}) running…`, {
+        current: { index: ev.index, total: ev.total, label: `${ev.vector_id} (${ev.category})` },
+      });
+    case 'probe_done':
+      return withLine(
+        `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,
+      );
+    case 'result':
+      return withLine(
+        `✓ Done — ${ev.summary.vulnerabilities_found} vulnerabilities / ${ev.summary.probes_run} probes`,
+        {
+          status: 'done',
+          current: undefined,
+          result: {
+            run_id: ev.run_id,
+            tile_id: ev.tile_id,
+            engine_name: ev.engine_name,
+            summary: ev.summary,
+            findings: ev.findings,
+          },
+        },
+      );
+    case 'error':
+      return withLine(`⚠ ${ev.message}`, { status: 'error', current: undefined, error: ev.message });
+    default:
+      return run;
+  }
+}
 
 export function App() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -17,14 +69,16 @@ export function App() {
   const [tab, setTab] = useState<Tab>('runs');
   const [selectedEngine, setSelectedEngine] = useState('mock');
 
-  const [runningTileId, setRunningTileId] = useState<string | null>(null);
-  const [phaseIndex, setPhaseIndex] = useState(0);
-  const [runResult, setRunResult] = useState<RunResult | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  // One run per tile, keyed by tile_id; multiple may be 'running' at once.
+  const [runs, setRuns] = useState<Record<string, TileRun>>({});
+  const aborters = useRef<Record<string, AbortController>>({});
+  // Synchronous "is this tile running" guard — updated imperatively so a rapid
+  // double-click can't slip past it on a stale `runs` snapshot (the button's
+  // disabled state still re-renders, but this closes the race window).
+  const runningRef = useRef<Set<string>>(new Set());
 
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
-  const phaseTimer = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -47,50 +101,92 @@ export function App() {
     };
   }, []);
 
-  useEffect(
-    () => () => {
-      if (phaseTimer.current !== null) window.clearInterval(phaseTimer.current);
-    },
-    [],
-  );
+  // Abort any in-flight run streams on unmount.
+  useEffect(() => {
+    const controllers = aborters.current;
+    return () => {
+      Object.values(controllers).forEach((c) => c.abort());
+    };
+  }, []);
 
   const onRun = useCallback(
     (tileId: string) => {
-      setRunningTileId(tileId);
-      setRunError(null);
-      setRunResult(null);
-      setPhaseIndex(0);
-      // Animate the three phases while the (synchronous) run is in flight. The mock
-      // run is fast; this just gives the loop a visible shape. Real streaming is future work.
-      let i = 0;
-      phaseTimer.current = window.setInterval(() => {
-        i = Math.min(i + 1, 2);
-        setPhaseIndex(i);
-      }, 350);
-      const stop = () => {
-        if (phaseTimer.current !== null) {
-          window.clearInterval(phaseTimer.current);
-          phaseTimer.current = null;
-        }
-      };
+      const tile = tiles.find((t) => t.tile_id === tileId);
+      // Guard against a second concurrent start for this tile. Uses a ref (not the
+      // `runs` state) so it reads the live value, immune to stale closures / batching.
+      if (runningRef.current.has(tileId)) return;
+      runningRef.current.add(tileId);
+
+      aborters.current[tileId]?.abort();
+      const controller = new AbortController();
+      aborters.current[tileId] = controller;
+
+      const engine = selectedEngine;
+      setRuns((prev) => ({
+        ...prev,
+        [tileId]: {
+          tileId,
+          tileName: tile?.name ?? tileId,
+          engine,
+          status: 'running',
+          startedAt: Date.now(),
+          lines: [`connecting to ${engine} engine…`],
+        },
+      }));
+
+      const update = (fn: (run: TileRun) => TileRun) =>
+        setRuns((prev) => (prev[tileId] ? { ...prev, [tileId]: fn(prev[tileId]) } : prev));
+
       api
-        .createRun(tileId, selectedEngine)
-        .then((res) => {
-          setRunResult(res);
-          setLedgerRefreshKey((k) => k + 1);
-        })
+        .streamRun(
+          tileId,
+          engine,
+          (ev) => {
+            update((run) => applyEvent(run, ev));
+            if (ev.type === 'result') setLedgerRefreshKey((k) => k + 1);
+          },
+          controller.signal,
+        )
         .catch((e: unknown) => {
-          setRunError(e instanceof ApiError ? e.message : String(e));
+          if (controller.signal.aborted) return;
+          const message = e instanceof ApiError ? e.message : String(e);
+          update((run) => ({
+            ...run,
+            status: 'error',
+            current: undefined,
+            error: message,
+            lines: [...run.lines, `⚠ ${message}`],
+          }));
         })
         .finally(() => {
-          stop();
-          setRunningTileId(null);
+          runningRef.current.delete(tileId);
+          if (aborters.current[tileId] === controller) delete aborters.current[tileId];
         });
     },
-    [selectedEngine],
+    [selectedEngine, tiles],
   );
 
-  const runningTileName = tiles.find((t) => t.tile_id === runningTileId)?.name ?? runningTileId;
+  const onDismissRun = useCallback((tileId: string) => {
+    runningRef.current.delete(tileId);
+    aborters.current[tileId]?.abort();
+    delete aborters.current[tileId];
+    setRuns((prev) => {
+      const next = { ...prev };
+      delete next[tileId];
+      return next;
+    });
+  }, []);
+
+  const runningTiles = useMemo(
+    () =>
+      new Set(Object.values(runs).filter((r) => r.status === 'running').map((r) => r.tileId)),
+    [runs],
+  );
+  const runList = useMemo(
+    () => Object.values(runs).sort((a, b) => b.startedAt - a.startedAt),
+    [runs],
+  );
+  const engineNames = useMemo(() => engines.map((e) => e.name), [engines]);
 
   return (
     <div className="app">
@@ -140,20 +236,19 @@ export function App() {
                   selectedEngine={selectedEngine}
                   onSelectEngine={setSelectedEngine}
                   onRun={onRun}
-                  runningTileId={runningTileId}
+                  runningTiles={runningTiles}
                 />
                 <RunConsole
-                  running={runningTileId !== null}
-                  phaseIndex={phaseIndex}
-                  tileName={runningTileName}
-                  result={runResult}
-                  error={runError}
+                  runs={runList}
                   onOpenFinding={setSelectedFindingId}
+                  onDismiss={onDismissRun}
                 />
               </>
             ) : (
               <LedgerViewer
                 tiles={tiles}
+                engineNames={engineNames}
+                defaultEngine={selectedEngine}
                 refreshKey={ledgerRefreshKey}
                 onOpenFinding={setSelectedFindingId}
               />

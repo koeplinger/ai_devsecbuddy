@@ -174,6 +174,39 @@ def test_ledger_persists_all_tables_and_query(vectors, tmp_path):
         ledger.close()
 
 
+def test_query_filters_findings_by_engine(vectors, tmp_path):
+    # engine is not a findings column — it filters via a join on the parent run's
+    # engine_name. Record the same tile under two engine labels in one ledger.
+    db = tmp_path / "ledger.db"
+    ledger = Ledger(str(db))
+    try:
+        for label in ("mock", "anthropic"):
+            run_assessment(TILES["tile-unguarded"](get_engine("mock")), vectors,
+                           CLEAN_CORPUS, ledger=ledger, engine_name=label)
+        assert len(ledger.query()) == 12                         # both runs
+        assert len(ledger.query(engine="mock")) == 6
+        assert len(ledger.query(engine="anthropic")) == 6
+        assert ledger.query(engine="vertex") == []               # nothing recorded
+        # engine combines with findings-column filters
+        assert len(ledger.query(engine="mock", severity="high")) == 4
+    finally:
+        ledger.close()
+
+
+def test_probe_emits_progress_events(vectors, tmp_path):
+    # The on_event hook fires a started/done pair per vector without changing results.
+    events: list[dict] = []
+    out = run_assessment(TILES["tile-unguarded"](get_engine("mock")), vectors, CLEAN_CORPUS,
+                         ledger=Ledger(str(tmp_path / "e.db")), engine_name="mock",
+                         on_event=events.append)
+    types = [e["type"] for e in events]
+    assert types[0] == "run_started"
+    assert types.count("probe_started") == types.count("probe_done") == len(out["results"]) == 6
+    assert {"baseline", "probing", "reporting"} == {e["phase"] for e in events if e["type"] == "phase"}
+    first = next(e for e in events if e["type"] == "probe_started")
+    assert first["index"] == 1 and first["total"] == 6 and first["vector_id"]
+
+
 def test_findings_dedupe_within_run(vectors, tmp_path):
     adapter = TILES["tile-unguarded"](get_engine("mock"))
     ledger = Ledger(str(tmp_path / "ledger.db"))

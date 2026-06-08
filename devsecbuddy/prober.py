@@ -26,8 +26,27 @@ class AdversarialProber:
         if not self.corpus:
             raise ValueError("AdversarialProber needs at least one clean request to mutate")
 
-    def probe(self, adapter: AppAdapter) -> list[ProbeResult]:
-        return [self._run_vector(adapter, v) for v in self.vectors]
+    def probe(self, adapter: AppAdapter, on_event=None) -> list[ProbeResult]:
+        """Run every enabled vector against ``adapter``.
+
+        ``on_event`` (optional) is a callback that receives a small dict before and
+        after each vector — ``probe_started`` / ``probe_done``. It lets a caller
+        stream live progress (the backend turns these into NDJSON) without changing
+        what ``probe()`` returns. A run with 6 vectors emits 6 started/done pairs.
+        """
+        results: list[ProbeResult] = []
+        total = len(self.vectors)
+        for index, v in enumerate(self.vectors, start=1):
+            if on_event is not None:
+                on_event({"type": "probe_started", "index": index, "total": total,
+                          "vector_id": v.id, "category": v.category, "severity": v.severity})
+            r = self._run_vector(adapter, v)
+            results.append(r)
+            if on_event is not None:
+                on_event({"type": "probe_done", "index": index, "total": total,
+                          "vector_id": v.id, "category": v.category,
+                          "success": r.success, "severity": r.severity, "detail": r.detail})
+        return results
 
     def evaluate(self, vector: AttackVector, response) -> ProbeResult:
         """Evaluate a single-response criterion against ``response`` (docs/phases.md).

@@ -230,15 +230,23 @@ class Ledger:
     # -- read -------------------------------------------------------------------
 
     def query(self, **filters) -> list[Finding]:
+        # ``engine`` is not a findings column — it lives on the parent run, so it
+        # filters via a join on runs.engine_name (docs/vulnerability-ledger.md).
+        engine = filters.get("engine") or filters.get("engine_name")
         clauses, params = [], []
         for column in _FILTERABLE:
             if filters.get(column) is not None:
-                clauses.append(f"{column} = ?")
+                clauses.append(f"f.{column} = ?")
                 params.append(filters[column])
-        sql = "SELECT * FROM findings"
+        if engine is not None:
+            clauses.append("r.engine_name = ?")
+            params.append(engine)
+            sql = "SELECT f.* FROM findings f JOIN runs r ON f.run_id = r.run_id"
+        else:
+            sql = "SELECT f.* FROM findings f"
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += " ORDER BY created_at DESC, finding_id"
+        sql += " ORDER BY f.created_at DESC, f.finding_id"
         rows = self.conn.execute(sql, params).fetchall()
         return [_row_to_finding(row) for row in rows]
 

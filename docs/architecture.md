@@ -330,6 +330,26 @@ Two things to note in the flow:
   into durable `Finding` rows. The `fingerprint` (`hash(tile_id, vector_id,
   normalized_signal)`) deduplicates the same vulnerability across re-runs.
 
+### 5.1 Live progress — the streaming run endpoint
+
+`POST /runs` runs the whole assessment and returns once, which is fine for the
+offline `MockEngine`. Against a real engine each probe is a network round-trip, so
+a run takes tens of seconds — too long to stare at a spinner. `POST /runs/stream`
+runs the *same* `run_assessment`, but passes it an `on_event` callback and streams
+each event to the client as **newline-delimited JSON** (`application/x-ndjson`):
+`run_started` → `phase` (baseline) → `baseline_done` → `phase` (probing) →
+`probe_started`/`probe_done` per vector → `phase` (reporting) → a terminal
+`result` (or `error`). The frontend renders these live in a per-tile run console,
+so a six-vector run shows "Probe 3/6: `pi-favorable-score-001` running…" as it
+happens. The events are pure progress reporting — `run_assessment` returns exactly
+the same result whether or not anyone is listening.
+
+**One live run per tile.** The backend reserves a tile for the duration of a
+streaming run; a second start for the *same* tile gets `409`, but other tiles run
+concurrently. This lets the UI launch several tiles at once (each with its own
+console panel) while keeping a single tile's runs serialized, so its ledger profile
+is never the interleaving of two overlapping runs.
+
 For the same probe suite, the four tiles produce *different* profiles — that
 contrast is the whole demonstration (see [tiles.md](tiles.md)):
 

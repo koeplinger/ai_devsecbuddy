@@ -93,4 +93,57 @@ export interface FindingFilters {
   status?: string;
   owasp_ref?: string;
   vector_id?: string;
+  engine?: string;
+}
+
+// ---- streaming run progress (NDJSON events from POST /runs/stream) ----
+// One event per line; the backend emits these as run_assessment progresses
+// (devsecbuddy/runner.py + prober.py). The frontend renders them live, per tile.
+export type RunEvent =
+  | { type: 'run_started'; run_id: string; tile_id: string; engine_name: string; total_probes: number }
+  | { type: 'phase'; phase: 'baseline' | 'probing' | 'reporting' }
+  | { type: 'baseline_done'; sample_count: number }
+  | {
+      type: 'probe_started';
+      index: number;
+      total: number;
+      vector_id: string;
+      category: string;
+      severity: string;
+    }
+  | {
+      type: 'probe_done';
+      index: number;
+      total: number;
+      vector_id: string;
+      category: string;
+      success: boolean;
+      severity: string;
+      detail: string;
+    }
+  | {
+      type: 'result';
+      run_id: string;
+      tile_id: string;
+      engine_name: string;
+      summary: RunSummary;
+      findings: Finding[];
+    }
+  | { type: 'error'; kind?: string; message: string };
+
+// Per-tile run state the UI keeps for the run console (one entry per tile that
+// has been run this session). Multiple tiles can be 'running' at once.
+export interface TileRun {
+  tileId: string;
+  tileName: string;
+  engine: string;
+  status: 'running' | 'done' | 'error';
+  startedAt: number;
+  // human-readable progress log lines, appended as events arrive
+  lines: string[];
+  // the in-flight probe, for a live "x/total running…" indicator
+  current?: { index: number; total: number; label: string };
+  totalProbes?: number;
+  result?: RunResult;
+  error?: string;
 }

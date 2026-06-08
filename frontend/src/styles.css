@@ -299,35 +299,108 @@ h4 {
   background: var(--sev-info);
 }
 
-/* ---- run console ---- */
-.run-progress {
-  font-size: 0.9rem;
-}
-.phases {
-  list-style: none;
-  padding: 0;
-  margin: 0.6rem 0 0;
+/* ---- run console (one card per tile run) ---- */
+.run-cards {
   display: flex;
-  gap: 1.25rem;
+  flex-direction: column;
+  gap: 0.9rem;
 }
-.phase {
+.run-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.8rem 0.9rem;
+  background: #fff;
+}
+.run-card.run-running {
+  border-left-color: var(--accent);
+}
+.run-card.run-done {
+  border-left-color: var(--ok);
+}
+.run-card.run-error {
+  border-left-color: var(--danger);
+}
+.run-card-head {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
 }
-.phase .dot {
+.run-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+}
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+.run-status-running {
+  color: var(--accent);
+  background: #eef0ff;
+}
+.run-status-done {
+  color: var(--ok);
+  background: #e9f8ef;
+}
+.run-status-error {
+  color: var(--danger);
+  background: #fdeaea;
+}
+.spinner {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--line);
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
 }
-.phase.done {
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.run-dismiss {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.run-current {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+.run-log {
+  margin: 0 0 0.6rem;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
   color: var(--ink);
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
-.phase.done .dot {
-  background: var(--accent);
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
 }
 .summary {
   display: flex;

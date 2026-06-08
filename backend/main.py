@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import Settings, load_settings
@@ -18,6 +19,7 @@ from .service import (
     EngineNotConfigured,
     FindingNotFound,
     RunNotFound,
+    TileBusy,
     TileNotFound,
     UnknownEngine,
 )
@@ -85,6 +87,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except EngineNotAvailable as exc:         # designed-but-unwired (legacy path)
             raise HTTPException(status_code=501, detail=str(exc))
 
+    @app.post("/runs/stream", tags=["runs"])
+    def create_run_stream(req: RunRequest) -> StreamingResponse:
+        """Run an assessment and stream live progress as NDJSON.
+
+        One live run per tile: a second request for a tile already running gets 409.
+        Each line is a JSON event (``run_started``, ``phase``, ``probe_started`` /
+        ``probe_done``, then a terminal ``result`` or ``error``). The frontend's
+        per-tile run console renders these as they arrive.
+        """
+        try:
+            lines = service.run_stream(req.tile_id, req.engine_name)
+        except TileNotFound:
+            raise HTTPException(status_code=404, detail=f"Unknown tile {req.tile_id!r}")
+        except UnknownEngine as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except TileBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return StreamingResponse(
+            lines,
+            media_type="application/x-ndjson",
+            # Defeat proxy/browser buffering so events arrive incrementally.
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @app.get("/runs", tags=["runs"])
     def list_runs(tile_id: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[dict]:
         return service.list_runs(tile_id=tile_id, limit=limit)
@@ -104,10 +130,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status: str | None = None,
         owasp_ref: str | None = None,
         vector_id: str | None = None,
+        engine: str | None = None,
     ) -> list[dict]:
         return service.list_findings(
             tile_id=tile_id, category=category, severity=severity,
-            status=status, owasp_ref=owasp_ref, vector_id=vector_id,
+            status=status, owasp_ref=owasp_ref, vector_id=vector_id, engine=engine,
         )
 
     @app.get("/findings/{finding_id}", tags=["report"])

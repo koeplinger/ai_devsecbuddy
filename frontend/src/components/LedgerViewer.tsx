@@ -10,15 +10,26 @@ const STATUSES = ['open', 'triaged', 'mitigated', 'accepted_risk', 'false_positi
 
 interface Props {
   tiles: Tile[];
+  engineNames: string[];
+  defaultEngine: string;
   refreshKey: number;
   onOpenFinding: (id: string) => void;
 }
 
-export function LedgerViewer({ tiles, refreshKey, onOpenFinding }: Props) {
-  const [filters, setFilters] = useState<FindingFilters>({});
+export function LedgerViewer({ tiles, engineNames, defaultEngine, refreshKey, onOpenFinding }: Props) {
+  // The engine filter defaults to whatever engine is selected on the "Tiles & runs"
+  // tab, so the ledger opens showing the same engine's findings.
+  const [filters, setFilters] = useState<FindingFilters>({ engine: defaultEngine || undefined });
   const [findings, setFindings] = useState<Finding[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Keep the engine filter tracking the Tiles-tab selection as it changes. Return
+  // the same state object when nothing changes, so this doesn't trigger a re-fetch.
+  useEffect(() => {
+    const engine = defaultEngine || undefined;
+    setFilters((prev) => (prev.engine === engine ? prev : { ...prev, engine }));
+  }, [defaultEngine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,11 +63,12 @@ export function LedgerViewer({ tiles, refreshKey, onOpenFinding }: Props) {
         </span>
       </div>
       <div className="filters">
+        <Filter label="Engine" value={filters.engine} onChange={set('engine')} options={engineNames} />
         <Filter label="Tile" value={filters.tile_id} onChange={set('tile_id')} options={tiles.map((t) => t.tile_id)} />
         <Filter label="Category" value={filters.category} onChange={set('category')} options={CATEGORIES} />
         <Filter label="Severity" value={filters.severity} onChange={set('severity')} options={SEVERITIES} />
         <Filter label="Status" value={filters.status} onChange={set('status')} options={STATUSES} />
-        <button className="btn ghost" onClick={() => setFilters({})}>
+        <button className="btn ghost" onClick={() => setFilters({ engine: defaultEngine || undefined })}>
           Clear filters
         </button>
       </div>

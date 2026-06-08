@@ -33,6 +33,9 @@ data/*.sqlite3
 *.sqlite3
 *.sqlite
 
+# ---- deploy.sh runtime (logs + pidfiles) ----
+.run/
+
 # ---- Editors / IDEs ----
 .idea/
 .vscode/
