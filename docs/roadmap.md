@@ -202,15 +202,15 @@ options. Note that real engines are **non-deterministic**, so repro depends on
 captured evidence in the ledger rather than on identical re-runs. See
 [ai-engines.md](ai-engines.md).
 
-**Status: `AnthropicEngine` live-validated (🚧 Vertex pending GCP).** Both adapters
-are coded, share one Messages-API mapping, and are unit-tested with a mocked SDK;
-they run **Claude Haiku 4.5** by default. **`AnthropicEngine` has been validated
-against the live model:** a real run on `tile-unguarded` surfaced a genuine
-system-prompt / rubric-leak finding (`data_exfiltration`, LLM06) — while the model
-itself **resisted the injection and jailbreak probes and showed no significant name
-bias** — and `tile-hardened` came back **clean**, so the guardrail ladder holds on a
-real model too. `VertexEngine` (Claude on Vertex) still needs the user's GCP
-project + credentials. Signup walkthroughs:
+**Status: both cloud engines live-validated.** The two adapters use **different
+providers and SDKs** — `AnthropicEngine` runs **Claude** directly against the
+Anthropic API; `VertexEngine` runs **Gemini 2.5 Flash** on **GCP Vertex AI** (the
+`google-genai` SDK, ADC auth) — and each is unit-tested with a mocked client. **Both
+have been validated against their live models:** real runs on `tile-unguarded`
+surfaced genuine system-prompt / rubric-leak findings (`data_exfiltration`, LLM06) —
+while the models themselves **resisted the injection and jailbreak probes and showed
+no significant name bias** — and `tile-hardened` came back **clean**, so the guardrail
+ladder holds on real models too (both Claude and Gemini). Signup walkthroughs:
 [anthropic-signup.md](setup/anthropic-signup.md),
 [google-vertex-signup.md](setup/google-vertex-signup.md). Until an engine is
 configured, `GET /engines` reports `configured: false` and a run returns HTTP 503.

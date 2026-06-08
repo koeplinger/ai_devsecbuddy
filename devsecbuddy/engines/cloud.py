@@ -1,8 +1,12 @@
-"""Cloud engine adapters — Claude via the Anthropic API and via Google Vertex AI.
+"""Cloud engine adapters — two providers, two model families, two SDKs.
 
-Both adapters speak the Anthropic **Messages API** (the Vertex one through the
-SDK's ``AnthropicVertex`` client), so they share one request/response mapping; only
-client construction and the model id differ. They are wired up in roadmap **M6**.
+* ``AnthropicEngine`` runs **Claude directly against the Anthropic API** (the
+  Anthropic SDK, ``anthropic.Anthropic``) using the **Messages API**.
+* ``VertexEngine`` runs **Google's Gemini models on GCP Vertex AI** (the
+  ``google-genai`` SDK in Vertex mode) using the **generate_content API**.
+
+So "anthropic" = Claude-direct and "vertex" = Gemini-on-Google — each engine uses
+its provider's own native SDK and request/response shape. Both are wired in M6.
 
 Credentials are read from the environment and the SDK clients are imported lazily,
 so importing this module never requires the SDKs or any keys. ``complete()`` raises
@@ -19,8 +23,10 @@ import time
 
 from ..models import EngineParams, EngineResponse
 
-# Default to the cheapest current Claude model for testing (docs/setup/).
+# Default to the cheapest current Claude model for the Anthropic path (docs/setup/).
 DEFAULT_MODEL = "claude-haiku-4-5"
+# Default Gemini model for the Vertex path — cheap + fast (docs/setup/).
+GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
 # Opus 4.7/4.8 reject sampling params (temperature/top_p/top_k) — drop them there.
 _NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
 
@@ -83,6 +89,94 @@ def _usage_dict(usage) -> dict | None:
     return out or None
 
 
+# --- Gemini on Vertex (google-genai generate_content) -------------------------
+
+def _gemini_complete(client, model: str, system: str, prompt: str,
+                     params: EngineParams, project: str | None, region: str | None) -> EngineResponse:
+    """Call Gemini via the google-genai Vertex client + map into our EngineResponse."""
+    from google.genai import types  # lazy: only needed when actually running a run
+
+    model = (params.extra or {}).get("model", model)   # optional per-request override
+    config_kwargs: dict = {
+        "system_instruction": system,
+        "temperature": params.temperature,
+        "max_output_tokens": params.max_tokens,
+    }
+    if params.seed is not None:
+        config_kwargs["seed"] = params.seed             # Vertex supports a sampling seed
+    if params.stop:
+        config_kwargs["stop_sequences"] = list(params.stop)
+    # Gemini 2.5 "thinking" models spend output tokens on hidden reasoning. For a bounded
+    # scoring task we turn it off so the token budget goes to the answer (and runs are
+    # cheaper / steadier). Only valid on 2.5-series models.
+    if model.startswith("gemini-2.5"):
+        config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+
+    started = time.perf_counter()
+    response = client.models.generate_content(
+        model=model, contents=prompt, config=types.GenerateContentConfig(**config_kwargs),
+    )
+    latency_ms = round((time.perf_counter() - started) * 1000, 2)
+
+    return EngineResponse(
+        text=_gemini_text(response),
+        model=getattr(response, "model_version", None) or model,
+        finish_reason=_gemini_finish(response),
+        usage=_gemini_usage(getattr(response, "usage_metadata", None)),
+        raw={"response_id": getattr(response, "response_id", None)},
+        latency_ms=latency_ms,
+        metadata={
+            "deterministic": False,
+            "provider": "vertex",
+            "project": project,
+            "region": region,
+        },
+    )
+
+
+def _gemini_text(response) -> str:
+    """Concatenate text parts. ``response.text`` can raise/return None if a candidate
+    was blocked or carries no text, so fall back to walking the candidate parts."""
+    try:
+        text = response.text
+    except Exception:
+        text = None
+    if text:
+        return text
+    parts_text = []
+    for candidate in getattr(response, "candidates", None) or []:
+        content = getattr(candidate, "content", None)
+        for part in getattr(content, "parts", None) or []:
+            piece = getattr(part, "text", None)
+            if piece:
+                parts_text.append(piece)
+    return "".join(parts_text)
+
+
+def _gemini_usage(usage) -> dict | None:
+    if usage is None:
+        return None
+    out = {}
+    for ours, theirs in (("input_tokens", "prompt_token_count"),
+                         ("output_tokens", "candidates_token_count"),
+                         ("total_tokens", "total_token_count"),
+                         ("thoughts_tokens", "thoughts_token_count")):
+        value = getattr(usage, theirs, None)
+        if value is not None:
+            out[ours] = value
+    return out or None
+
+
+def _gemini_finish(response) -> str | None:
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return None
+    reason = getattr(candidates[0], "finish_reason", None)
+    if reason is None:
+        return None
+    return getattr(reason, "name", None) or str(reason)
+
+
 class AnthropicEngine:
     """Claude via the Anthropic API (docs/setup/anthropic-signup.md)."""
 
@@ -133,8 +227,13 @@ class AnthropicEngine:
 
 
 class VertexEngine:
-    """Claude on Google Vertex AI via the Anthropic SDK's Vertex client
-    (docs/setup/google-vertex-signup.md)."""
+    """Google Gemini on GCP Vertex AI via the ``google-genai`` SDK
+    (docs/setup/google-vertex-signup.md).
+
+    Authentication uses Application Default Credentials — run
+    ``gcloud auth application-default login`` once (user) or set
+    ``GOOGLE_APPLICATION_CREDENTIALS`` to a service-account key (server). No API key.
+    """
 
     name = "vertex"
 
@@ -143,26 +242,30 @@ class VertexEngine:
         self.project = project or os.environ.get("DEVSECBUDDY_VERTEX_PROJECT") \
             or os.environ.get("GOOGLE_CLOUD_PROJECT")
         self.region = region or os.environ.get("DEVSECBUDDY_VERTEX_REGION") \
-            or os.environ.get("CLOUD_ML_REGION", "us-east5")
-        self.model = model or os.environ.get("DEVSECBUDDY_VERTEX_MODEL", DEFAULT_MODEL)
+            or os.environ.get("GOOGLE_CLOUD_REGION") \
+            or os.environ.get("CLOUD_ML_REGION", "us-central1")
+        self.model = model or os.environ.get("DEVSECBUDDY_VERTEX_MODEL", GEMINI_DEFAULT_MODEL)
         self._client = client
         self._config = kwargs
 
     def configured(self) -> bool:
+        # ADC is picked up by the SDK at call time; project+region are what we can
+        # check up front. complete() raises EngineNotConfigured if creds are missing.
         return bool(self.project and self.region) or self._client is not None
 
     def info(self) -> dict:
         return {
             "name": self.name,
-            "provider": "Google Vertex AI (Claude)",
+            "provider": "Google Vertex AI (Gemini)",
             "deterministic": False,
             "implemented": True,
             "configured": self.configured(),
             "model": self.model,
             "project": self.project,
             "region": self.region,
-            "requires": ["a GCP project + region", "ADC / service-account credentials",
-                         "the anthropic[vertex] SDK"],
+            "requires": ["a GCP project + region", "the Vertex AI API enabled",
+                         "Application Default Credentials (gcloud auth application-default login)",
+                         "the google-genai SDK"],
             "roadmap": "M6",
         }
 
@@ -170,10 +273,10 @@ class VertexEngine:
         if self._client is not None:
             return self._client
         try:
-            from anthropic import AnthropicVertex
+            from google import genai
         except ImportError as exc:
             raise EngineNotConfigured(
-                "the Vertex client is unavailable — `pip install \"anthropic[vertex]\"` "
+                "the 'google-genai' SDK is not installed — `pip install google-genai` "
                 "(or `pip install -e .[vertex]`)."
             ) from exc
         if not (self.project and self.region):
@@ -181,9 +284,9 @@ class VertexEngine:
                 "DEVSECBUDDY_VERTEX_PROJECT and DEVSECBUDDY_VERTEX_REGION are required — "
                 "see docs/setup/google-vertex-signup.md."
             )
-        self._client = AnthropicVertex(project_id=self.project, region=self.region)
+        self._client = genai.Client(vertexai=True, project=self.project, location=self.region)
         return self._client
 
     def complete(self, system: str, prompt: str, params: EngineParams | None = None) -> EngineResponse:
-        return _messages_complete(self._get_client(), self.model, system, prompt,
-                                  params or EngineParams(), provider="vertex")
+        return _gemini_complete(self._get_client(), self.model, system, prompt,
+                                params or EngineParams(), self.project, self.region)

@@ -1,6 +1,8 @@
 """M6 cloud-engine tests — request mapping, response parsing, sampling guard, and
-the not-configured error path, all with a mocked Anthropic SDK client (no network,
-no keys). The live smoke test happens once real credentials exist.
+the not-configured error path, with mocked SDK clients (no network, no keys):
+``AnthropicEngine`` = Claude via the Anthropic Messages API; ``VertexEngine`` =
+Gemini via the google-genai generate_content API. Live smoke tests happen once real
+credentials exist.
 """
 from __future__ import annotations
 
@@ -51,6 +53,48 @@ class _FakeClient:
         self.messages = _FakeMessages(self.calls)
 
 
+# -- a minimal stand-in for the google-genai Vertex client ---------------------
+
+class _FakeGeminiUsage:
+    prompt_token_count = 100
+    candidates_token_count = 12
+    total_token_count = 112
+    thoughts_token_count = 0
+
+
+class _FakeFinishReason:
+    name = "STOP"
+
+
+class _FakeGeminiCandidate:
+    finish_reason = _FakeFinishReason()
+    content = None
+
+
+class _FakeGeminiResponse:
+    def __init__(self, text):
+        self.text = text
+        self.model_version = "gemini-2.5-flash"
+        self.response_id = "resp_1"
+        self.usage_metadata = _FakeGeminiUsage()
+        self.candidates = [_FakeGeminiCandidate()]
+
+
+class _FakeGeminiModels:
+    def __init__(self, calls):
+        self._calls = calls
+
+    def generate_content(self, **kwargs):
+        self._calls.append(kwargs)
+        return _FakeGeminiResponse("SCORE: 71/100\nStrong match.")
+
+
+class _FakeGeminiClient:
+    def __init__(self):
+        self.calls = []
+        self.models = _FakeGeminiModels(self.calls)
+
+
 # -- tests ---------------------------------------------------------------------
 
 def test_anthropic_engine_maps_request_and_response():
@@ -85,16 +129,44 @@ def test_sampling_params_dropped_for_opus_4_7_plus():
     assert "temperature" not in client.calls[0]   # Opus 4.7/4.8 reject sampling params
 
 
-def test_vertex_engine_shares_the_messages_mapping():
-    client = _FakeClient()
-    engine = VertexEngine(client=client, project="proj", region="us-east5",
-                          model="claude-haiku-4-5")
-    resp = engine.complete("s", "p")
+def test_vertex_engine_maps_gemini_request_and_response():
+    pytest.importorskip("google.genai")  # config is built with the real google-genai types
+    client = _FakeGeminiClient()
+    engine = VertexEngine(client=client, project="devsecbuddy", region="us-east1",
+                          model="gemini-2.5-flash")
+    resp = engine.complete("RUBRIC system", "Applicant name: Jordan Lee\nResume: ...",
+                           EngineParams(max_tokens=200, temperature=0.0, stop=["END"]))
+
+    call = client.calls[0]
+    assert call["model"] == "gemini-2.5-flash"
+    assert call["contents"] == "Applicant name: Jordan Lee\nResume: ..."
+    cfg = call["config"]
+    assert cfg.system_instruction == "RUBRIC system"     # system prompt -> system_instruction
+    assert cfg.max_output_tokens == 200
+    assert cfg.temperature == 0.0
+    assert list(cfg.stop_sequences) == ["END"]
+    assert cfg.thinking_config.thinking_budget == 0       # thinking disabled for the 2.5 model
+
+    assert resp.text.startswith("SCORE:")
+    assert resp.model == "gemini-2.5-flash"
+    assert resp.finish_reason == "STOP"
+    assert resp.usage["input_tokens"] == 100 and resp.usage["output_tokens"] == 12
+    assert resp.metadata["deterministic"] is False
     assert resp.metadata["provider"] == "vertex"
-    assert client.calls[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert resp.metadata["project"] == "devsecbuddy" and resp.metadata["region"] == "us-east1"
     info = engine.info()
     assert info["implemented"] is True and info["configured"] is True
-    assert info["project"] == "proj" and info["region"] == "us-east5"
+    assert info["provider"] == "Google Vertex AI (Gemini)" and info["model"] == "gemini-2.5-flash"
+
+
+def test_vertex_model_override_and_thinking_only_on_2_5():
+    pytest.importorskip("google.genai")
+    client = _FakeGeminiClient()
+    VertexEngine(client=client, project="p", region="us-central1").complete(
+        "s", "p", EngineParams(extra={"model": "gemini-2.0-flash"}))
+    call = client.calls[0]
+    assert call["model"] == "gemini-2.0-flash"     # EngineParams.extra["model"] overrides
+    assert call["config"].thinking_config is None  # thinking_config only set for gemini-2.5*
 
 
 def test_unconfigured_engines_raise_clear_error():

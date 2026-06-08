@@ -11,17 +11,18 @@ Three adapters implement the interface:
 | Adapter | Provider | Status | Network | Determinism |
 | --- | --- | --- | --- | --- |
 | **`MockEngine`** | none (built-in) | **implemented first, the default** | **offline** | deterministic |
-| **`AnthropicEngine`** | Anthropic (Claude) | implemented; needs credentials | online | non-deterministic |
-| **`VertexEngine`** | Google Vertex AI (Claude) | implemented; needs credentials | online | non-deterministic |
+| **`AnthropicEngine`** | Anthropic (Claude) | implemented + live-validated | online | non-deterministic |
+| **`VertexEngine`** | Google Vertex AI (Gemini) | implemented + live-validated | online | non-deterministic |
 
 > **Account note (read this first).** `AnthropicEngine` and `VertexEngine` are
-> **implemented** (roadmap M6) but need **credentials** to run — sign-up
+> **implemented and live** (roadmap M6) but need **credentials** to run — sign-up
 > walkthroughs are in [docs/setup/anthropic-signup.md](setup/anthropic-signup.md) and
 > [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md). Until those are
 > set the backend reports them as `configured: false` and a run against them returns
 > HTTP **503**. **Everything in the demo runs today on `MockEngine`** — no keys, no
-> project, no network. `VertexEngine` runs **Claude on Vertex** (the same Messages API
-> as the direct Anthropic adapter); Google's own Gemini is a future option.
+> project, no network. The two cloud engines deliberately use **different providers
+> and SDKs**: `AnthropicEngine` runs **Claude directly against the Anthropic API**, and
+> `VertexEngine` runs **Google's Gemini on GCP Vertex AI** (the `google-genai` SDK).
 
 Related docs: [tiles.md](tiles.md) (the four resume-scorer tiles each adapter can
 back), [architecture.md](architecture.md) (where engine selection lives in the
@@ -37,8 +38,8 @@ injection, unlike SQL injection, has no parameterized-query-style remedy. A clea
 provider boundary supports that posture directly:
 
 - **Portability** — the same tile, the same `AdversarialProber`, and the same
-  attack-library YAML run against a mock model today and a real Claude or Vertex
-  model later, unchanged.
+  attack-library YAML run against the mock model, a real Claude (Anthropic API), or
+  a real Gemini (GCP Vertex AI), unchanged.
 - **Reproducibility** — `MockEngine` is offline and deterministic, so demo runs,
   baselines, and findings replay identically. The model is held constant; only
   **guardrail strength** (the tile) varies the results.
@@ -115,8 +116,8 @@ them are evidence of a real run, not a deterministic fixture.
 flowchart LR
   Tile["Tile (AppAdapter)"] -->|complete system, prompt, params| Engine["AIEngine"]
   Engine --> Mock["MockEngine — offline, deterministic"]
-  Engine --> Anthropic["AnthropicEngine — Claude API"]
-  Engine --> Vertex["VertexEngine — Google Vertex AI"]
+  Engine --> Anthropic["AnthropicEngine — Claude (Anthropic API)"]
+  Engine --> Vertex["VertexEngine — Gemini (GCP Vertex AI)"]
   Mock -.default.-> Tile
 ```
 
@@ -236,25 +237,30 @@ adapter is unit-tested without a key; absent a key or the SDK it raises a clear
 
 ---
 
-## `VertexEngine` — Google Vertex AI (implemented; needs a project)
+## `VertexEngine` — Gemini on Google Vertex AI (implemented; needs a project)
 
-`VertexEngine` adapts **Google Vertex AI** to the `AIEngine` interface. It is
-**implemented** (roadmap M6) and runs **Claude on Vertex** via the Anthropic SDK's
-`AnthropicVertex` client — so it reuses the exact same Messages-API request/response
-mapping as `AnthropicEngine`; only the client (project + region + ADC auth) and the
-model id differ. It runs once a GCP project, region, and credentials are configured
-(see [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md)); absent
-those it raises `EngineNotConfigured`.
+`VertexEngine` adapts **Google's Gemini models on GCP Vertex AI** to the `AIEngine`
+interface. It is **implemented and live-validated** (roadmap M6) and uses Google's own
+[`google-genai`](https://pypi.org/project/google-genai/) SDK in Vertex mode
+(`genai.Client(vertexai=True, project=…, location=…)`) with the **generate_content**
+API — a genuinely different provider and request/response shape from the Anthropic
+adapter (the system prompt maps to `system_instruction`, `max_tokens` to
+`max_output_tokens`, etc.). It runs once a GCP project, region, and credentials are
+configured (see [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md));
+absent those it raises `EngineNotConfigured`.
 
 - **`name`:** `"vertex"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False`.
-- **Project / region:** a **GCP project id** and a **region** (e.g. a
-  Vertex-supported location) must be configured.
-- **Auth:** **service-account** credentials (Application Default Credentials via a
-  service-account key file or workload identity) — not an API key.
-- **Note:** Vertex can also host Claude and other partner models; the adapter
-  still exposes them through the same `AIEngine` contract, so tile and probe code
-  is unaffected by which Vertex model is chosen.
+- **Model:** a **Gemini model id** (default `gemini-2.5-flash`). Per-request override
+  via `EngineParams.extra["model"]`. For 2.5-series models the adapter sets
+  `thinking_budget=0` so the bounded token budget goes to the answer, not hidden
+  reasoning.
+- **Project / region:** a **GCP project id** and a **region** serving the model
+  (default `us-central1`; `us-east1` and `global` also work — see the locations note
+  in the setup doc).
+- **Auth:** **Application Default Credentials** — `gcloud auth application-default
+  login` (user) or a service-account key via `GOOGLE_APPLICATION_CREDENTIALS`
+  (server). Not an API key.
 
 ---
 
@@ -273,7 +279,7 @@ the default when nothing is set:
 | (unset) | **`MockEngine`** — the default; offline, deterministic. |
 | engine = `mock` | `MockEngine`. |
 | engine = `anthropic` | `AnthropicEngine` — requires `ANTHROPIC_API_KEY` (later step). |
-| engine = `vertex` | `VertexEngine` — requires GCP project + region + service account (later step). |
+| engine = `vertex` | `VertexEngine` — Gemini on GCP Vertex AI; requires a project + region + ADC. |
 
 A run records which engine produced it: the chosen engine's `name` is written to
 the **`runs.engine_name`** column (`mock` | `anthropic` | `vertex`) in the
@@ -299,34 +305,37 @@ ever talks to its `AIEngine`.
 
 ---
 
-## Enabling the cloud adapters (a later step)
+## Enabling the cloud adapters
 
-**Today:** nothing below is required. `MockEngine` is the default, runs offline,
-and powers the full tile demo with no accounts, keys, or network. The user has
-**no Anthropic or Vertex accounts yet**, and that is fine — the cloud adapters are
-**designed now and wired up later**.
+**Today:** nothing below is required to run the demo. `MockEngine` is the default,
+runs offline, and powers the full tile demo with no accounts, keys, or network. The
+cloud adapters are **implemented and live-validated**; configure one only when you
+want to run the probe suite against a real model.
 
-When the time comes, here is **exactly** what each adapter needs.
+Configuration lives in a gitignored **`.env`** (template: [`.env.sample`](../.env.sample));
+here is **exactly** what each adapter needs.
 
-### To enable `AnthropicEngine`
+### To enable `AnthropicEngine` (Claude, Anthropic API)
 
 1. An **Anthropic account** with API access.
-2. An **`ANTHROPIC_API_KEY`**, provided via environment (e.g. `ANTHROPIC_API_KEY`).
-3. The **Anthropic Python SDK** (`anthropic`) added as a backend dependency.
-4. A chosen **Claude model id** (e.g. `claude-opus-4-8` or `claude-sonnet-4-6`).
-5. Recommended: **prompt caching** configured on the stable system prefix.
+2. An **`ANTHROPIC_API_KEY`**, provided via environment.
+3. The **Anthropic Python SDK** (`anthropic`) — `pip install -e ".[anthropic]"`.
+4. A chosen **Claude model id** via `DEVSECBUDDY_ANTHROPIC_MODEL` (default
+   `claude-haiku-4-5`; e.g. `claude-opus-4-8` or `claude-sonnet-4-6`).
+5. Recommended: **prompt caching** configured on the stable system prefix (the
+   adapter already marks it `cache_control: ephemeral`).
 
-### To enable `VertexEngine`
+### To enable `VertexEngine` (Gemini, GCP Vertex AI)
 
-1. A **Google Cloud (GCP) account and project** (a **project id**).
-2. A configured **region** for Vertex AI.
-3. A **service account** with the appropriate Vertex AI permissions, and its
-   credentials available to the backend (a key file or workload identity via
-   Application Default Credentials).
-4. The **`anthropic[vertex]`** extra added as a backend dependency (the Anthropic
-   SDK's `AnthropicVertex` client — `VertexEngine` runs Claude on Vertex).
-5. A chosen Vertex **model id** (may need an `@version` suffix, e.g.
-   `claude-haiku-4-5@20251001`).
+1. A **Google Cloud (GCP) account and project** (set `DEVSECBUDDY_VERTEX_PROJECT`).
+2. The **Vertex AI API enabled** and your account granted `roles/aiplatform.user`.
+3. **Application Default Credentials** — `gcloud auth application-default login`
+   (user) or `GOOGLE_APPLICATION_CREDENTIALS` to a service-account key (server).
+4. A **region** serving the model via `DEVSECBUDDY_VERTEX_REGION` (default
+   `us-central1`; `us-east1` / `global` also work).
+5. The **`google-genai`** SDK — `pip install -e ".[vertex]"`.
+6. A chosen **Gemini model id** via `DEVSECBUDDY_VERTEX_MODEL` (default
+   `gemini-2.5-flash`).
 
 ### What stays the same
 
@@ -337,9 +346,10 @@ of the pluggable engine layer. See [roadmap.md](roadmap.md) for sequencing.
 
 | Requirement | `MockEngine` | `AnthropicEngine` | `VertexEngine` |
 | --- | --- | --- | --- |
+| Provider / model | built-in | Anthropic · Claude | Google Vertex AI · Gemini |
 | Account | none | Anthropic account | GCP account + project |
-| Credentials | none | `ANTHROPIC_API_KEY` | service-account creds |
+| Credentials | none | `ANTHROPIC_API_KEY` | ADC (`gcloud` login) / SA key |
 | Region / project | n/a | n/a | GCP project + region |
-| SDK | none | `anthropic` | `anthropic[vertex]` |
+| SDK | none | `anthropic` | `google-genai` |
 | Network | offline | online | online |
-| Status | **works today** | later step | later step |
+| Status | **works today** | **live** | **live** |

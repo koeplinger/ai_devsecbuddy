@@ -93,10 +93,12 @@ py_install() {
     python3 -m pip install --quiet --target="$purelib" --break-system-packages "$@"
   fi
 }
-if "$PY" -c "import fastapi, uvicorn, yaml, httpx, anthropic" 2>/dev/null; then
+if "$PY" -c "import fastapi, uvicorn, yaml, httpx, anthropic, google.genai" 2>/dev/null; then
   echo "  backend deps already satisfied"
 else
-  py_install "fastapi>=0.110" "uvicorn[standard]>=0.29" "pyyaml>=6" "httpx>=0.27" "anthropic>=0.40"
+  # anthropic = Claude (direct API); google-genai = Gemini on Vertex.
+  py_install "fastapi>=0.110" "uvicorn[standard]>=0.29" "pyyaml>=6" "httpx>=0.27" \
+    "anthropic>=0.40" "google-genai>=1.0"
 fi
 
 step "Installing frontend dependencies (npm)…"
@@ -145,9 +147,16 @@ else
 fi
 
 # --------------------------------------------------------------- done
+ENGINE="${DEVSECBUDDY_ENGINE:-mock}"
+case "$ENGINE" in
+  mock) ENGINE_NOTE="(offline · free)" ;;
+  anthropic) ENGINE_NOTE="(Claude · billed to Anthropic)" ;;
+  vertex) ENGINE_NOTE="(Gemini · billed to GCP)" ;;
+  *) ENGINE_NOTE="" ;;
+esac
 printf '\n\033[1;32m✓ Deployed.\033[0m  Open the app:  http://localhost:%s\n' "$FRONTEND_PORT"
 printf '   API + OpenAPI docs:            http://localhost:%s/docs\n' "$BACKEND_PORT"
-printf '   default engine: %s (free) · ledger: %s\n' "${DEVSECBUDDY_ENGINE:-mock}" "$DEVSECBUDDY_DB"
+printf '   default engine: %s %s · ledger: %s\n' "$ENGINE" "$ENGINE_NOTE" "$DEVSECBUDDY_DB"
 
 printf '\nTail the application logs with:\n\n'
 printf '   tail -f "%s/backend.log" "%s/frontend.log"\n' "$RUN_DIR" "$RUN_DIR"
