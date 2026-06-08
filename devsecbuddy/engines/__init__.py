@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from ..models import EngineParams, EngineResponse
-from .cloud import AnthropicEngine, VertexEngine
+from .cloud import AnthropicEngine, EngineNotConfigured, VertexEngine
 from .mock import MockEngine
 
 
@@ -40,4 +40,5 @@ def get_engine(name: str | None = None, **kwargs) -> AIEngine:
         raise ValueError(f"Unknown engine {name!r}; choose one of {sorted(_ENGINES)}") from None
 
 
-__all__ = ["AIEngine", "MockEngine", "AnthropicEngine", "VertexEngine", "get_engine"]
+__all__ = ["AIEngine", "MockEngine", "AnthropicEngine", "VertexEngine", "get_engine",
+           "EngineNotConfigured"]

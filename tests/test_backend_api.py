@@ -32,11 +32,15 @@ def test_tiles_lists_the_four_reference_tiles(client):
     assert "guardrails" in unguarded
 
 
-def test_engines_reports_mock_default_and_unwired_cloud(client):
+def test_engines_reports_mock_default_and_cloud_implemented_unconfigured(client):
     engines = {e["name"]: e for e in client.get("/engines").json()}
     assert engines["mock"]["implemented"] is True and engines["mock"]["default"] is True
-    assert engines["anthropic"]["implemented"] is False
-    assert engines["vertex"]["implemented"] is False
+    assert engines["mock"]["configured"] is True
+    # cloud engines are now implemented but unconfigured (no creds in this env)
+    assert engines["anthropic"]["implemented"] is True
+    assert engines["anthropic"]["configured"] is False
+    assert engines["vertex"]["implemented"] is True
+    assert engines["vertex"]["configured"] is False
 
 
 def test_run_unguarded_reproduces_full_profile(client):
@@ -59,10 +63,11 @@ def test_run_unknown_tile_404(client):
     assert client.post("/runs", json={"tile_id": "tile-nope"}).status_code == 404
 
 
-def test_run_unwired_engine_501(client):
+def test_run_unconfigured_engine_503(client):
+    # anthropic is implemented but has no SDK/key in this env -> a clear 503, not a 500
     resp = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "anthropic"})
-    assert resp.status_code == 501
-    assert "M6" in resp.json()["detail"] or "not wired" in resp.json()["detail"].lower()
+    assert resp.status_code == 503
+    assert "anthropic" in resp.json()["detail"].lower()
 
 
 def test_run_unknown_engine_400(client):

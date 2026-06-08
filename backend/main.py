@@ -15,6 +15,7 @@ from .config import Settings, load_settings
 from .service import (
     AssessmentService,
     EngineNotAvailable,
+    EngineNotConfigured,
     FindingNotFound,
     RunNotFound,
     TileNotFound,
@@ -79,7 +80,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Unknown tile {req.tile_id!r}")
         except UnknownEngine as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        except EngineNotAvailable as exc:
+        except EngineNotConfigured as exc:        # implemented but missing SDK/credentials
+            raise HTTPException(status_code=503, detail=str(exc))
+        except EngineNotAvailable as exc:         # designed-but-unwired (legacy path)
             raise HTTPException(status_code=501, detail=str(exc))
 
     @app.get("/runs", tags=["runs"])

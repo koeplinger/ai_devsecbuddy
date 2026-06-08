@@ -207,13 +207,16 @@ def test_runs_are_reproducible(vectors, tmp_path):
 
 # -- cloud engines (designed, not wired) ---------------------------------------
 
-def test_cloud_engines_are_designed_but_unwired():
+def test_cloud_engines_are_implemented_pending_credentials():
+    from devsecbuddy.engines import EngineNotConfigured
+
     assert get_engine().name == "mock"          # default
     for engine in (AnthropicEngine(), VertexEngine()):
         info = engine.info()
-        assert info["implemented"] is False
-        assert info["roadmap"] == "M6"
-        with pytest.raises(NotImplementedError):
+        assert info["implemented"] is True
+        assert info["deterministic"] is False
+        assert info["configured"] is False       # no SDK/credentials in the test env
+        with pytest.raises(EngineNotConfigured):  # clear error, not NotImplementedError/500
             engine.complete("sys", "prompt")
 
 

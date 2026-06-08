@@ -76,6 +76,7 @@ class MockEngine:
             "deterministic": True,
             "offline": True,
             "implemented": True,
+            "configured": True,
             "features": ["resume_scoring", "rigged_injection", "rigged_name_bias", "rigged_prompt_leak"],
         }
 

@@ -35,8 +35,8 @@ export function App() {
         setTiles(t);
         setEngines(e);
         const def =
-          e.find((x) => x.default && x.implemented !== false) ??
-          e.find((x) => x.implemented !== false);
+          e.find((x) => x.default && x.configured !== false) ??
+          e.find((x) => x.configured !== false);
         if (def) setSelectedEngine(def.name);
       })
       .catch((e: unknown) => {

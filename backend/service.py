@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from devsecbuddy import Ledger, get_engine, load_vectors, run_assessment
 from devsecbuddy.demo import CLEAN_CORPUS, TILES
-from devsecbuddy.engines import AnthropicEngine, MockEngine, VertexEngine
+from devsecbuddy.engines import AnthropicEngine, EngineNotConfigured, MockEngine, VertexEngine
 from devsecbuddy.models import Finding
 
 # Engines the backend can select between (docs/ai-engines.md).

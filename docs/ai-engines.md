@@ -11,15 +11,17 @@ Three adapters implement the interface:
 | Adapter | Provider | Status | Network | Determinism |
 | --- | --- | --- | --- | --- |
 | **`MockEngine`** | none (built-in) | **implemented first, the default** | **offline** | deterministic |
-| **`AnthropicEngine`** | Anthropic (Claude) | designed now, wired later | online | non-deterministic |
-| **`VertexEngine`** | Google Vertex AI | designed now, wired later | online | non-deterministic |
+| **`AnthropicEngine`** | Anthropic (Claude) | implemented; needs credentials | online | non-deterministic |
+| **`VertexEngine`** | Google Vertex AI (Claude) | implemented; needs credentials | online | non-deterministic |
 
-> **Account note (read this first).** The user has **no Anthropic or Vertex
-> accounts yet**. `AnthropicEngine` and `VertexEngine` are **designed and
-> documented now but not enabled** — they are a deliberate later step. **Everything
-> in the demo runs today on `MockEngine`**, which needs no keys, no project, and
-> no network. See [Enabling the cloud adapters](#enabling-the-cloud-adapters-a-later-step)
-> for exactly what each one requires.
+> **Account note (read this first).** `AnthropicEngine` and `VertexEngine` are
+> **implemented** (roadmap M6) but need **credentials** to run — sign-up
+> walkthroughs are in [docs/setup/anthropic-signup.md](setup/anthropic-signup.md) and
+> [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md). Until those are
+> set the backend reports them as `configured: false` and a run against them returns
+> HTTP **503**. **Everything in the demo runs today on `MockEngine`** — no keys, no
+> project, no network. `VertexEngine` runs **Claude on Vertex** (the same Messages API
+> as the direct Anthropic adapter); Google's own Gemini is a future option.
 
 Related docs: [tiles.md](tiles.md) (the four resume-scorer tiles each adapter can
 back), [architecture.md](architecture.md) (where engine selection lives in the
@@ -205,22 +207,26 @@ findings and the same per-tile profiles described in [tiles.md](tiles.md).
 
 ---
 
-## `AnthropicEngine` — Claude (designed now, wired later)
+## `AnthropicEngine` — Claude (implemented; needs a key)
 
 `AnthropicEngine` adapts the Anthropic API (Claude) to the `AIEngine` interface.
-It is **designed and documented now but not implemented yet** — there is no
-Anthropic account in place. When wired up, `complete` maps `system` to the
-request's system prompt and `prompt` to the user turn, translates `EngineParams`
-(temperature, max_tokens, stop, etc.) to the Anthropic request, and packs the
-response into `EngineResponse` (text, model id, finish reason, token `usage`,
-raw payload, latency).
+It is **implemented** (roadmap M6) and runs once an `ANTHROPIC_API_KEY` is set
+(see [docs/setup/anthropic-signup.md](setup/anthropic-signup.md)). `complete` maps
+`system` to the request's system prompt (with a `cache_control` breakpoint on the
+stable rubric) and `prompt` to the user turn, translates `EngineParams`
+(temperature, max_tokens, stop) onto the Anthropic Messages request, and packs the
+response into `EngineResponse` (text, model id, `stop_reason`, token `usage`, raw
+payload, latency). The SDK is imported lazily and the client is injectable, so the
+adapter is unit-tested without a key; absent a key or the SDK it raises a clear
+`EngineNotConfigured`.
 
 - **`name`:** `"anthropic"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False` — real Claude models
   sample; runs against this engine are live evidence, not deterministic fixtures.
-- **Model ids (current):** select a Claude model id such as **`claude-opus-4-8`**
-  (highest-capability) or **`claude-sonnet-4-6`** (faster / cheaper) via
-  `EngineParams.extra` or adapter config.
+- **Model ids (current):** the default is **`claude-haiku-4-5`** (cheapest); pick
+  another such as **`claude-sonnet-4-6`** or **`claude-opus-4-8`** via the engine's
+  `model=` constructor argument, the **`DEVSECBUDDY_ANTHROPIC_MODEL`** environment
+  variable, or per-request via `EngineParams.extra["model"]`.
 - **Auth:** an **`ANTHROPIC_API_KEY`** environment variable.
 - **Recommended:** enable **prompt caching**. The system prompt / rubric and the
   attack-library framing are largely constant across a probe run, so caching the
@@ -230,13 +236,15 @@ raw payload, latency).
 
 ---
 
-## `VertexEngine` — Google Vertex AI (designed now, wired later)
+## `VertexEngine` — Google Vertex AI (implemented; needs a project)
 
-`VertexEngine` adapts **Google Vertex AI** to the `AIEngine` interface. Like the
-Anthropic adapter, it is **designed and documented now but not implemented yet** —
-there is no GCP project or service account in place. When wired up, it maps the
-same `complete(system, prompt, params)` shape onto a Vertex generation request and
-returns an `EngineResponse`.
+`VertexEngine` adapts **Google Vertex AI** to the `AIEngine` interface. It is
+**implemented** (roadmap M6) and runs **Claude on Vertex** via the Anthropic SDK's
+`AnthropicVertex` client — so it reuses the exact same Messages-API request/response
+mapping as `AnthropicEngine`; only the client (project + region + ADC auth) and the
+model id differ. It runs once a GCP project, region, and credentials are configured
+(see [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md)); absent
+those it raises `EngineNotConfigured`.
 
 - **`name`:** `"vertex"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False`.
@@ -315,8 +323,10 @@ When the time comes, here is **exactly** what each adapter needs.
 3. A **service account** with the appropriate Vertex AI permissions, and its
    credentials available to the backend (a key file or workload identity via
    Application Default Credentials).
-4. The **Google Cloud Vertex AI Python SDK** added as a backend dependency.
-5. A chosen Vertex **model id**.
+4. The **`anthropic[vertex]`** extra added as a backend dependency (the Anthropic
+   SDK's `AnthropicVertex` client — `VertexEngine` runs Claude on Vertex).
+5. A chosen Vertex **model id** (may need an `@version` suffix, e.g.
+   `claude-haiku-4-5@20251001`).
 
 ### What stays the same
 
@@ -330,6 +340,6 @@ of the pluggable engine layer. See [roadmap.md](roadmap.md) for sequencing.
 | Account | none | Anthropic account | GCP account + project |
 | Credentials | none | `ANTHROPIC_API_KEY` | service-account creds |
 | Region / project | n/a | n/a | GCP project + region |
-| SDK | none | `anthropic` | Google Vertex AI SDK |
+| SDK | none | `anthropic` | `anthropic[vertex]` |
 | Network | offline | online | online |
 | Status | **works today** | later step | later step |

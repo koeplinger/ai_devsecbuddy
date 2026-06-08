@@ -21,6 +21,7 @@ export interface Tile {
 export interface EngineInfo {
   name: string;
   implemented?: boolean;
+  configured?: boolean;
   deterministic?: boolean;
   default?: boolean;
   offline?: boolean;

@@ -143,7 +143,7 @@ The `devsecbuddy` core and the FastAPI backend run today on the offline `MockEng
 
 ```bash
 pip install -e ".[backend,dev]"   # core + FastAPI/uvicorn/httpx + pytest
-python -m pytest -q               # 31 tests (library + API), incl. the tiles.md divergence table
+python -m pytest -q               # 37 tests (library + API), incl. the tiles.md divergence table
 
 # CLI — run the full three-phase loop on all four tiles:
 python -m devsecbuddy --tile all
@@ -162,7 +162,7 @@ Both write findings to `data/ledger.db` (gitignored), and the per-tile profile i
 
 ## Status & roadmap
 
-AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M5** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); the FastAPI backend + run/report API (M2); the Vite + React + TypeScript frontend — tiles grid, run console, ledger viewer (M3); the full four-tile ladder (M4); and the broadened attack library across all four categories plus the fairness-metrics suite (M5). Next: wiring the real cloud engines (M6, which needs Anthropic/Vertex account setup), then passive learning against a real UAT capture (M7).
+AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M5** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); the FastAPI backend + run/report API (M2); the Vite + React + TypeScript frontend — tiles grid, run console, ledger viewer (M3); the full four-tile ladder (M4); and the broadened attack library across all four categories plus the fairness-metrics suite (M5). **M6 is in progress**: the `AnthropicEngine` / `VertexEngine` adapters are coded and mock-tested ([docs/setup/](docs/setup/)) — they just need Anthropic/Vertex **account setup** for a live run. Then passive learning against a real UAT capture (M7).
 
 The model engines are **pluggable** behind the `AIEngine` interface:
 

@@ -30,9 +30,17 @@ export function TilesGrid({
             disabled={busy}
           >
             {engines.map((e) => (
-              <option key={e.name} value={e.name} disabled={e.implemented === false}>
+              <option
+                key={e.name}
+                value={e.name}
+                disabled={e.implemented === false || e.configured === false}
+              >
                 {e.name}
-                {e.implemented === false ? ' — wired in M6' : ''}
+                {e.implemented === false
+                  ? ' — wired in M6'
+                  : e.configured === false
+                    ? ' — needs setup'
+                    : ''}
                 {e.default ? ' (default)' : ''}
               </option>
             ))}

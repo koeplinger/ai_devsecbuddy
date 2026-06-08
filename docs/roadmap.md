@@ -34,7 +34,7 @@ The guiding principles:
 | **M3** | **Frontend vertical slice** | Vite + React + TypeScript UI proving the loop end-to-end on the one tile. | Tiles grid, run console (launch/stream a run), ledger viewer — all against `tile-unguarded`. | `MockEngine` | ✅ done |
 | **M4** | **Remaining tiles** | Complete the four-tile ladder so the same probe suite differentiates guardrail strength. | `tile-input-sanitized`, `tile-fairness-aware`, `tile-hardened` as `AppAdapter`s; tiles grid shows all four. | `MockEngine` | ✅ done |
 | **M5** | **Full attack library + bias metrics** | Broaden coverage to the full vector set and fairness measurement. | `attack-library/vectors/*.yaml` across all four categories; counterfactual name-swap probes + bias metrics (score-delta, disparate-impact). | `MockEngine` | ✅ done |
-| **M6** | **Wire `AnthropicEngine`, then `VertexEngine`** | Connect the real model adapters behind the existing `AIEngine` interface. **Requires external account setup (see below).** | `AnthropicEngine` (Claude) wired first, then `VertexEngine` (Google Vertex AI); engine picker in UI/run API. | `AnthropicEngine` → `VertexEngine` | ⬜ not started |
+| **M6** | **Wire `AnthropicEngine`, then `VertexEngine`** | Connect the real model adapters behind the existing `AIEngine` interface. **Requires external account setup (see below).** | `AnthropicEngine` (Claude) wired first, then `VertexEngine` (Google Vertex AI); engine picker in UI/run API. | `AnthropicEngine` → `VertexEngine` | 🚧 in progress |
 | **M7** | **Passive-learning / baseline phase vs. real UAT capture** | Exercise Phase 1 against real test-environment traffic instead of a synthetic corpus. | `BaselineProfiler` fed by a captured UAT request/response corpus; persisted `Baseline`s; deltas computed against real baselines. | per target | ⬜ not started |
 | **M8** | **Polish, reporting, export** | Production-readiness for the demo: usability and auditable output. | Run summaries and severity rollups; ledger export (e.g. report download); UI polish; docs refresh. | any | ⬜ not started |
 
@@ -119,7 +119,7 @@ logic. See [tiles.md](tiles.md) and [architecture.md](architecture.md).
 **Status: implemented.** [`../backend/`](../backend/) is a FastAPI service that
 hosts the four reference tiles behind `AppAdapter` and exposes the run/report API
 (`/tiles`, `/engines`, `POST /runs`, `/runs/{id}`, `/findings`), with env-driven
-engine selection (`MockEngine` default; cloud engines return HTTP 501 until M6).
+engine selection (`MockEngine` default; an unconfigured cloud engine returns HTTP 503).
 A `POST /runs` drives the full `open_run → baseline → probe → record → close_run`
 flow and returns the run summary + findings; 8 API tests pass. Runs are
 synchronous for now — live streaming arrives with the M3 frontend. Run it with
@@ -181,7 +181,7 @@ and recorded in every `bias_fairness` finding's evidence. The four-tile divergen
 now covers `prompt_injection`, `modal_jailbreak`, `data_exfiltration`, and
 `bias_fairness` (`tile-unguarded` → 6 findings, `tile-hardened` → 0); 31 tests pass.
 
-### M6 — Wire `AnthropicEngine`, then `VertexEngine` ⬜ 🔑 requires external setup
+### M6 — Wire `AnthropicEngine`, then `VertexEngine` 🚧 🔑 requires external setup
 
 > **⚠️ This milestone has an external dependency the user must satisfy first.**
 > The `AnthropicEngine` and `VertexEngine` adapters are *designed and documented*
@@ -201,6 +201,19 @@ Once credentials are available, each adapter slots in behind the unchanged
 options. Note that real engines are **non-deterministic**, so repro depends on
 captured evidence in the ledger rather than on identical re-runs. See
 [ai-engines.md](ai-engines.md).
+
+**Status: `AnthropicEngine` live-validated (🚧 Vertex pending GCP).** Both adapters
+are coded, share one Messages-API mapping, and are unit-tested with a mocked SDK;
+they run **Claude Haiku 4.5** by default. **`AnthropicEngine` has been validated
+against the live model:** a real run on `tile-unguarded` surfaced a genuine
+system-prompt / rubric-leak finding (`data_exfiltration`, LLM06) — while the model
+itself **resisted the injection and jailbreak probes and showed no significant name
+bias** — and `tile-hardened` came back **clean**, so the guardrail ladder holds on a
+real model too. `VertexEngine` (Claude on Vertex) still needs the user's GCP
+project + credentials. Signup walkthroughs:
+[anthropic-signup.md](setup/anthropic-signup.md),
+[google-vertex-signup.md](setup/google-vertex-signup.md). Until an engine is
+configured, `GET /engines` reports `configured: false` and a run returns HTTP 503.
 
 ### M7 — Passive-learning / baseline phase vs. real UAT capture ⬜
 
@@ -229,10 +242,10 @@ Final readiness pass for the demo and for platform/security audiences:
 backend + run/report API; the React frontend vertical slice; the full four-tile
 ladder; and the broadened attack library + fairness metrics). The next prompts:
 
-1. **Engine account setup → M6.** Set up an **Anthropic API key** and a **GCP /
-   Vertex AI project**, then wire `AnthropicEngine` (then `VertexEngine`) behind the
-   unchanged `AIEngine` interface so the suite can run against real models — see
-   [ai-engines.md](ai-engines.md). (The staged `enabled: false` vectors activate here.)
+1. **Finish M6 (🚧 in progress).** The adapters are coded + mock-tested; what remains
+   is **account setup** — an **Anthropic API key** and a **GCP / Vertex AI project**
+   (walkthroughs in [docs/setup/](setup/)) — then a **live smoke test** against real
+   models. (The staged `enabled: false` vectors activate here.)
 2. **M7 — passive learning vs. a real UAT capture.** Feed `BaselineProfiler` a real
    request/response capture instead of the synthetic clean corpus — see
    [phases.md](phases.md).
