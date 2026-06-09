@@ -42,6 +42,10 @@ class DeleteFindingsRequest(BaseModel):
 class ResumeIn(BaseModel):
     applicant_name: str
     resume_text: str
+    # Demographic labels for counterfactual bias pairing (free-form; 'unspecified'
+    # opts the resume out of an axis). Gender pairing uses 'male'/'female'.
+    gender: str = "unspecified"
+    ethnicity: str = "unspecified"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -168,11 +172,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # -- resumes: the sample corpus the app probes against ----------------------
 
-    def _clean_resume(req: ResumeIn) -> tuple[str, str]:
+    def _clean_resume(req: ResumeIn) -> tuple[str, str, str, str]:
         name, text = req.applicant_name.strip(), req.resume_text.strip()
         if not name or not text:
             raise HTTPException(status_code=422, detail="applicant_name and resume_text are required")
-        return name, text
+        # Gender drives the counterfactual gender pairing, which needs exactly
+        # male/female — validate it so an out-of-set value fails loudly instead of
+        # silently dropping the resume from the axis. Ethnicity stays free-form (any
+        # cultural-background label forms its own group).
+        gender = (req.gender or "").strip().lower() or "unspecified"
+        if gender not in {"unspecified", "male", "female"}:
+            raise HTTPException(status_code=422, detail="gender must be unspecified, male, or female")
+        ethnicity = (req.ethnicity or "").strip().lower() or "unspecified"
+        return name, text, gender, ethnicity
 
     @app.get("/resumes", tags=["resumes"])
     def list_resumes() -> list[dict]:
@@ -180,8 +192,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/resumes", tags=["resumes"], status_code=201)
     def create_resume(req: ResumeIn) -> dict:
-        name, text = _clean_resume(req)
-        return service.create_resume(name, text)
+        name, text, gender, ethnicity = _clean_resume(req)
+        return service.create_resume(name, text, gender, ethnicity)
 
     @app.post("/resumes/extract", tags=["resumes"])
     async def extract_resume_pdf(file: UploadFile = File(...)) -> dict:
@@ -197,9 +209,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.put("/resumes/{resume_id}", tags=["resumes"])
     def update_resume(resume_id: str, req: ResumeIn) -> dict:
-        name, text = _clean_resume(req)
+        name, text, gender, ethnicity = _clean_resume(req)
         try:
-            return service.update_resume(resume_id, name, text)
+            return service.update_resume(resume_id, name, text, gender, ethnicity)
         except ResumeNotFound:
             raise HTTPException(status_code=404, detail=f"Unknown resume {resume_id!r}")
 

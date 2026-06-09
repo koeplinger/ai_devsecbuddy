@@ -150,16 +150,31 @@ class AdversarialProber:
         return False, None, f"unsupported success_criteria type {ctype!r}; treated as no-finding"
 
     def _run_bias(self, adapter: AppAdapter, vector: AttackVector) -> ProbeResult:
-        seed = self._seed()
         template = vector.template if isinstance(vector.template, dict) else {}
-        pairs = template.get("pairs", [])
+        # Prefer counterfactual pairs built from the *labelled corpus* (these resumes +
+        # these names); fall back to the vector's curated pairs if the corpus is unlabelled.
+        corpus_pairs = self._bias_pairs_from_corpus()
+        pairs = corpus_pairs or template.get("pairs", [])
+        pair_source = "corpus" if corpus_pairs else "curated"
+
+        cache: dict = {}  # (resume index, name) -> score, so each pair reuses scorings
+
+        def score(idx: int, text: str, name) -> float:
+            key = (idx, name)
+            if key not in cache:
+                cache[key] = self._score_resume(adapter, text, name)
+            return cache[key]
+
         variants = []
-        for pair in pairs:
-            a, b, axis = pair.get("a"), pair.get("b"), pair.get("axis", "unspecified")
-            score_a = self._score_with_name(adapter, seed, a)
-            score_b = self._score_with_name(adapter, seed, b)
-            variants.append({"a": a, "score_a": score_a, "b": b, "score_b": score_b,
-                             "axis": axis, "abs_delta": round(abs(score_a - score_b), 3)})
+        for idx, req in enumerate(self.corpus):           # scope: ALL resumes in the corpus
+            text = req.fields.get("resume_text", "")
+            who = req.fields.get("applicant_name", "")
+            for pair in pairs:
+                a, b, axis = pair.get("a"), pair.get("b"), pair.get("axis", "unspecified")
+                score_a, score_b = score(idx, text, a), score(idx, text, b)
+                variants.append({"a": a, "score_a": score_a, "b": b, "score_b": score_b,
+                                 "axis": axis, "abs_delta": round(abs(score_a - score_b), 3),
+                                 "resume": who})
 
         crit = vector.success_criteria
         selection_threshold = float(crit.get("selection_threshold", DEFAULT_SELECTION_THRESHOLD))
@@ -177,21 +192,62 @@ class AdversarialProber:
             severity=severity,
             category=vector.category,
             request_snapshot={"target": vector.target, "method": "counterfactual_swap",
-                              "resume_key": resume_key(seed.fields.get("resume_text", "")),
+                              "resumes_tested": len(self.corpus), "pair_source": pair_source,
                               "pairs": pairs},
             response_snapshot={"variants": variants, "fairness_metrics": metrics},
             metric_value=round(mean_delta, 4),
             baseline_ref=self._baseline_ref(),
-            detail=(f"mean_abs_score_delta {mean_delta:.2f} {crit.get('operator', '>')} {threshold}; "
+            detail=(f"mean_abs_score_delta {mean_delta:.2f} {crit.get('operator', '>')} {threshold} "
+                    f"across {len(self.corpus)} resume(s) using {pair_source} name pairs; "
                     f"parity_gap {metrics.get('demographic_parity_gap')}, "
                     f"disparate_impact {metrics.get('disparate_impact_ratio')}, "
                     f"flip_rate {metrics.get('flip_rate')}"),
         )
 
-    def _score_with_name(self, adapter: AppAdapter, seed: AppRequest, name) -> float:
-        fields = dict(seed.fields)
-        fields["applicant_name"] = name
-        response = adapter.invoke(AppRequest(fields=fields))
+    def _bias_pairs_from_corpus(self) -> list[dict]:
+        """Counterfactual name pairs from the labelled corpus, holding the *other* axis
+        fixed so each pair isolates one sensitive attribute: a gender pair within one
+        ethnicity (male vs female, same ethnicity), and ethnicity pairs within one gender
+        (reference vs each other, same gender). Empty if the corpus has no usable matched
+        groups — then ``_run_bias`` falls back to the vector's curated pairs."""
+        people = []
+        for req in self.corpus:
+            meta = req.meta or {}
+            g, e = meta.get("gender"), meta.get("ethnicity")
+            if g in ("male", "female") and e and e != "unspecified":
+                people.append((req.fields.get("applicant_name", ""), g, e))
+        # Sort by name so the representative chosen per (gender, ethnicity) group is
+        # deterministic — independent of DB row order / updated_at timestamps.
+        people.sort(key=lambda p: p[0])
+
+        pairs: list[dict] = []
+
+        # GENDER axis: within an ethnicity that has both a male and a female name.
+        by_eth_gender: dict[tuple, str] = {}
+        for name, g, e in people:
+            by_eth_gender.setdefault((e, g), name)
+        for e in dict.fromkeys(e for (e, _g) in by_eth_gender):  # stable, de-duped order
+            if (e, "male") in by_eth_gender and (e, "female") in by_eth_gender:
+                pairs.append({"a": by_eth_gender[(e, "male")],
+                              "b": by_eth_gender[(e, "female")], "axis": "gender"})
+                break  # one representative gender pair is enough
+
+        # ETHNICITY axis: within a gender that spans >= 2 ethnicities, compare a reference
+        # group (american by convention, else the first available) against each other.
+        by_gender_eth: dict[str, dict[str, str]] = {}
+        for name, g, e in people:
+            by_gender_eth.setdefault(g, {}).setdefault(e, name)
+        for _g, eths in by_gender_eth.items():
+            if len(eths) >= 2:
+                ref = "american" if "american" in eths else next(iter(eths))
+                for e, name in eths.items():
+                    if e != ref:
+                        pairs.append({"a": eths[ref], "b": name, "axis": "ethnicity"})
+                break  # use the first gender that spans multiple ethnicities
+        return pairs
+
+    def _score_resume(self, adapter: AppAdapter, resume_text: str, name) -> float:
+        response = adapter.invoke(AppRequest(fields={"applicant_name": name, "resume_text": resume_text}))
         return response.score if response.score is not None else 0.0
 
     def _render(self, vector: AttackVector, fields: dict) -> str:

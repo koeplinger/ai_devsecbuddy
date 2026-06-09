@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS resumes (
     resume_id      TEXT PRIMARY KEY,
     applicant_name TEXT NOT NULL,
     resume_text    TEXT NOT NULL,
+    gender         TEXT NOT NULL DEFAULT 'unspecified',
+    ethnicity      TEXT NOT NULL DEFAULT 'unspecified',
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL
 );
@@ -95,7 +97,18 @@ class Ledger:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(_SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        # `CREATE TABLE IF NOT EXISTS` won't add columns to a pre-existing table, so add
+        # the demographic-label columns to an older `resumes` table (used for bias pairing).
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(resumes)")}
+        for col in ("gender", "ethnicity"):  # fixed literals — safe to interpolate
+            if col not in cols:
+                self.conn.execute(
+                    f"ALTER TABLE resumes ADD COLUMN {col} TEXT NOT NULL DEFAULT 'unspecified'"
+                )
 
     # -- run lifecycle ----------------------------------------------------------
 
@@ -304,22 +317,24 @@ class Ledger:
         ).fetchone()
         return _row_to_resume(row) if row else None
 
-    def create_resume(self, applicant_name: str, resume_text: str) -> dict:
+    def create_resume(self, applicant_name: str, resume_text: str,
+                      gender: str = "unspecified", ethnicity: str = "unspecified") -> dict:
         resume_id = "resume-" + uuid.uuid4().hex[:12]
         ts = now_iso()
         self.conn.execute(
-            "INSERT INTO resumes(resume_id, applicant_name, resume_text, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (resume_id, applicant_name, resume_text, ts, ts),
+            "INSERT INTO resumes(resume_id, applicant_name, resume_text, gender, ethnicity, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (resume_id, applicant_name, resume_text, gender, ethnicity, ts, ts),
         )
         self.conn.commit()
         return self.get_resume(resume_id)
 
-    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str) -> dict | None:
+    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str,
+                      gender: str = "unspecified", ethnicity: str = "unspecified") -> dict | None:
         cur = self.conn.execute(
-            "UPDATE resumes SET applicant_name = ?, resume_text = ?, updated_at = ? "
-            "WHERE resume_id = ?",
-            (applicant_name, resume_text, now_iso(), resume_id),
+            "UPDATE resumes SET applicant_name = ?, resume_text = ?, gender = ?, ethnicity = ?, "
+            "updated_at = ? WHERE resume_id = ?",
+            (applicant_name, resume_text, gender, ethnicity, now_iso(), resume_id),
         )
         self.conn.commit()
         return self.get_resume(resume_id) if cur.rowcount else None
@@ -340,9 +355,10 @@ class Ledger:
         ts = now_iso()
         for item in items:
             self.conn.execute(
-                "INSERT INTO resumes(resume_id, applicant_name, resume_text, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                ("resume-" + uuid.uuid4().hex[:12], item["applicant_name"], item["resume_text"], ts, ts),
+                "INSERT INTO resumes(resume_id, applicant_name, resume_text, gender, ethnicity, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                ("resume-" + uuid.uuid4().hex[:12], item["applicant_name"], item["resume_text"],
+                 item.get("gender", "unspecified"), item.get("ethnicity", "unspecified"), ts, ts),
             )
         self.conn.commit()
         return len(items)
@@ -396,6 +412,8 @@ def _row_to_resume(row: sqlite3.Row) -> dict:
         "id": row["resume_id"],
         "applicant_name": row["applicant_name"],
         "resume_text": row["resume_text"],
+        "gender": row["gender"],
+        "ethnicity": row["ethnicity"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }

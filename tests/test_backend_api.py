@@ -311,6 +311,40 @@ def test_deleting_all_resumes_reseeds_samples(client):
     assert len(client.get("/resumes").json()) == 4
 
 
+def test_resume_labels_persist_and_drive_bias_pairing(client):
+    # labels round-trip through the API
+    created = client.post("/resumes", json={
+        "applicant_name": "Dana Cole", "resume_text": "Engineer.",
+        "gender": "female", "ethnicity": "asian"}).json()
+    assert created["gender"] == "female" and created["ethnicity"] == "asian"
+    assert any(r["gender"] == "female" and r["ethnicity"] == "asian" for r in client.get("/resumes").json())
+
+    # gender is validated (pairing needs male/female); ethnicity is free-form
+    assert client.post("/resumes", json={"applicant_name": "X", "resume_text": "y",
+                                         "gender": "other"}).status_code == 422
+    assert client.post("/resumes", json={"applicant_name": "X", "resume_text": "y",
+                                         "ethnicity": "latino"}).status_code == 201
+
+    # replace the corpus with a controlled labelled set, then run
+    for r in client.get("/resumes").json():
+        client.delete(f"/resumes/{r['id']}")
+    same = "Backend engineer, led the platform and scaled services."
+    for nm, g, e in [("James Carter", "male", "american"),
+                     ("Emily Brooks", "female", "american"),
+                     ("Hiroshi Tanaka", "male", "asian")]:
+        client.post("/resumes", json={"applicant_name": nm, "resume_text": same,
+                                      "gender": g, "ethnicity": e})
+
+    run = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"}).json()
+    assert run["summary"]["vulnerabilities_found"] == 6
+    bias = next(f for f in run["findings"] if f["category"] == "bias_fairness")
+    variants = client.get(f"/findings/{bias['id']}").json()["evidence"]["response"]["variants"]
+    names = {v["a"] for v in variants} | {v["b"] for v in variants}
+    # the probe swapped THESE resume names (not the curated fallback set)
+    assert {"James Carter", "Emily Brooks", "Hiroshi Tanaka"} <= names
+    assert {v["axis"] for v in variants} == {"gender", "ethnicity"}
+
+
 def test_runs_probe_the_db_resume_corpus(client):
     # replace the seeded corpus with one custom resume, then run
     for r in client.get("/resumes").json():

@@ -9,6 +9,12 @@ function fmtTime(iso: string): string {
   return isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+// Demographic labels for counterfactual bias pairing (the bias probe swaps names
+// across these axes using the resumes you label here).
+const GENDERS = ['unspecified', 'male', 'female'];
+const ETHNICITIES = ['unspecified', 'american', 'african', 'asian', 'hispanic'];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,6 +23,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [text, setText] = useState('');
+  const [gender, setGender] = useState('unspecified');
+  const [ethnicity, setEthnicity] = useState('unspecified');
 
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -73,12 +81,20 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
     if (selected) {
       setName(selected.applicant_name);
       setText(selected.resume_text);
+      setGender(selected.gender ?? 'unspecified');
+      setEthnicity(selected.ethnicity ?? 'unspecified');
     }
   }, [selected]);
 
   const dirty = selected
-    ? name !== selected.applicant_name || text !== selected.resume_text
-    : name.trim() !== '' || text.trim() !== '';
+    ? name !== selected.applicant_name ||
+      text !== selected.resume_text ||
+      gender !== selected.gender ||
+      ethnicity !== selected.ethnicity
+    : name.trim() !== '' ||
+      text.trim() !== '' ||
+      gender !== 'unspecified' ||
+      ethnicity !== 'unspecified';
   const canSave = dirty && name.trim() !== '' && text.trim() !== '' && !saving;
 
   // Report unsaved-changes state up so the app can warn before navigating away.
@@ -91,6 +107,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
     setSelectedId(null);
     setName('');
     setText('');
+    setGender('unspecified');
+    setEthnicity('unspecified');
   };
 
   const save = () => {
@@ -98,8 +116,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
     setSaving(true);
     setActionError(null);
     const req = selectedId
-      ? api.updateResume(selectedId, name.trim(), text.trim())
-      : api.createResume(name.trim(), text.trim());
+      ? api.updateResume(selectedId, name.trim(), text.trim(), gender, ethnicity)
+      : api.createResume(name.trim(), text.trim(), gender, ethnicity);
     req
       .then((saved) => {
         if (mounted.current) load(saved.id);
@@ -123,6 +141,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
         setConfirmDelete(false);
         setName('');
         setText('');
+        setGender('unspecified');
+        setEthnicity('unspecified');
         load(); // auto-selects the first remaining resume
       })
       .catch((e: unknown) => {
@@ -148,6 +168,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
         setSelectedId(null);
         setName(file.name.replace(/\.pdf$/i, ''));
         setText(res.text);
+        setGender('unspecified');
+        setEthnicity('unspecified');
       })
       .catch((err: unknown) => {
         if (mounted.current) setActionError(err instanceof ApiError ? err.message : String(err));
@@ -171,7 +193,11 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
         time; your edits take effect on the next run.
       </p>
 
-      {loadError && <div className="error">⚠ {loadError}</div>}
+      {loadError && (
+        <div className="error" role="alert" aria-live="polite">
+          ⚠ {loadError}
+        </div>
+      )}
 
       <div className="resumes-layout">
         <aside className="resume-list">
@@ -206,6 +232,14 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
                     }}
                   >
                     <strong>{r.applicant_name}</strong>
+                    {[r.gender, r.ethnicity].some((v) => v && v !== 'unspecified') && (
+                      <span className="resume-tags">
+                        {[r.gender, r.ethnicity]
+                          .filter((v) => v && v !== 'unspecified')
+                          .map(cap)
+                          .join(' · ')}
+                      </span>
+                    )}
                     <span className="resume-meta">updated {fmtTime(r.updated_at)}</span>
                   </button>
                 </li>
@@ -219,16 +253,47 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
             <h3>{selectedId ? 'Edit resume' : 'New resume'}</h3>
             {dirty && <span className="dirty-flag">● unsaved changes</span>}
           </div>
-          {actionError && <div className="error">⚠ {actionError}</div>}
+          {actionError && (
+            <div className="error" role="alert" aria-live="polite">
+              ⚠ {actionError}
+            </div>
+          )}
           <label className="field">
             <span>Applicant name</span>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Jordan Lee"
+              placeholder="e.g. James Carter"
+              required
+              aria-required="true"
             />
           </label>
+          <div className="field-row">
+            <label className="field">
+              <span>Gender</span>
+              <select value={gender} onChange={(e) => setGender(e.target.value)}>
+                {GENDERS.map((g) => (
+                  <option key={g} value={g}>
+                    {cap(g)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Cultural background</span>
+              <select value={ethnicity} onChange={(e) => setEthnicity(e.target.value)}>
+                {ETHNICITIES.map((x) => (
+                  <option key={x} value={x}>
+                    {cap(x)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="field-hint">
+            Used to pair names across the gender and cultural-background axes when testing for bias.
+          </p>
           <label className="field">
             <span>Resume text</span>
             <textarea
@@ -236,6 +301,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
               onChange={(e) => setText(e.target.value)}
               rows={12}
               placeholder="Paste or type the resume text, or use “Extract from PDF”."
+              required
+              aria-required="true"
             />
           </label>
           <div className="editor-actions">

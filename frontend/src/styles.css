@@ -791,6 +791,34 @@ h4 {
   font-size: 0.72rem;
   color: var(--muted);
 }
+.resume-tags {
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-transform: capitalize;
+}
+.field-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.field-row .field {
+  flex: 1;
+  min-width: 130px;
+}
+.field-row select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+.field-hint {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
 .resume-editor {
   display: flex;
   flex-direction: column;

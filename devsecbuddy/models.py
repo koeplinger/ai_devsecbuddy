@@ -56,6 +56,10 @@ class EngineResponse:
 class AppRequest:
     fields: dict                 # named inputs, e.g. {"applicant_name": "...", "resume_text": "..."}
     raw_text: str | None = None  # optional fully-rendered prompt
+    # Out-of-band metadata the tile ignores but the prober may use — e.g. demographic
+    # labels {"gender": ..., "ethnicity": ...} on a corpus resume, for counterfactual
+    # bias pairing (the engine still only sees `fields`).
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass

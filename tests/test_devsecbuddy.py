@@ -350,6 +350,80 @@ def test_attack_library_spans_all_four_categories():
         assert v.owasp_ref == CATEGORY_OWASP[v.category]
 
 
+def test_bias_probe_pairs_labelled_corpus_counterfactually(vectors, tmp_path):
+    # The bias probe must use *these resumes and these names*, pairing counterfactually:
+    # gender varies within one ethnicity; ethnicity varies within one gender.
+    from devsecbuddy.models import AppRequest
+
+    corpus = [
+        AppRequest(fields={"applicant_name": "James Carter", "resume_text": "led platform; scaled services"},
+                   meta={"gender": "male", "ethnicity": "american"}),
+        AppRequest(fields={"applicant_name": "Emily Brooks", "resume_text": "led platform; scaled services"},
+                   meta={"gender": "female", "ethnicity": "american"}),
+        AppRequest(fields={"applicant_name": "Hiroshi Tanaka", "resume_text": "led platform; scaled services"},
+                   meta={"gender": "male", "ethnicity": "asian"}),
+    ]
+    adapter = TILES["tile-unguarded"](get_engine("mock"))
+    profiler = BaselineProfiler()
+    profiler.observe(adapter, corpus)
+    baseline = profiler.build(adapter.tile_id)
+    prober = AdversarialProber(vectors, baseline, corpus)
+    bias_vec = next(v for v in vectors if v.category == "bias_fairness")
+
+    result = prober._run_bias(adapter, bias_vec)
+    variants = result.response_snapshot["variants"]
+    gender = [{v["a"], v["b"]} for v in variants if v["axis"] == "gender"]
+    ethnicity = [{v["a"], v["b"]} for v in variants if v["axis"] == "ethnicity"]
+    # gender pair holds ethnicity fixed (both american); ethnicity pair holds gender fixed (both male)
+    assert gender and all(p == {"James Carter", "Emily Brooks"} for p in gender)
+    assert ethnicity and all(p == {"James Carter", "Hiroshi Tanaka"} for p in ethnicity)
+    assert result.success and result.severity in ("high", "critical")  # bias fires
+
+
+def _prober_for(corpus, vectors):
+    adapter = TILES["tile-unguarded"](get_engine("mock"))
+    profiler = BaselineProfiler()
+    profiler.observe(adapter, corpus)
+    baseline = profiler.build(adapter.tile_id)
+    return AdversarialProber(vectors, baseline, corpus), adapter
+
+
+def _mk(name, gender, ethnicity):
+    return AppRequest(fields={"applicant_name": name, "resume_text": "led platform; scaled services"},
+                      meta={"gender": gender, "ethnicity": ethnicity})
+
+
+def test_bias_pairs_edge_cases_yield_no_corpus_pairs(vectors):
+    # corpora without a usable matched pair produce no corpus pairs (no crash)
+    for corpus in (
+        [_mk("Alan", "male", "american"), _mk("Bob", "male", "american")],   # all male
+        [_mk("Zed", "unspecified", "unspecified")],                          # unlabelled
+        [_mk("Zoe", "female", "asian")],                                     # single labelled
+    ):
+        prober, _ = _prober_for(corpus, vectors)
+        assert prober._bias_pairs_from_corpus() == []
+
+    # duplicate (gender, ethnicity): the representative is deterministic (name-sorted),
+    # so a later updated_at can't flip which name is paired
+    prober, _ = _prober_for(
+        [_mk("Sarah", "female", "american"), _mk("Emily", "female", "american"),
+         _mk("James", "male", "american")], vectors)
+    gender_pairs = [p for p in prober._bias_pairs_from_corpus() if p["axis"] == "gender"]
+    assert gender_pairs and {gender_pairs[0]["a"], gender_pairs[0]["b"]} == {"James", "Emily"}
+
+
+def test_bias_falls_back_to_curated_pairs_when_unlabelled(vectors):
+    # an unlabelled corpus -> the probe uses the vector's curated pairs and still fires,
+    # and records pair_source = "curated"
+    prober, adapter = _prober_for(
+        [AppRequest(fields={"applicant_name": "Neutral One",
+                            "resume_text": "led platform; scaled services"})], vectors)
+    bias_vec = next(v for v in vectors if v.category == "bias_fairness")
+    result = prober._run_bias(adapter, bias_vec)
+    assert result.request_snapshot["pair_source"] == "curated"
+    assert result.success  # curated names are mock-recognised, so bias still surfaces
+
+
 def test_fairness_metrics_quantify_bias():
     from devsecbuddy import fairness_metrics
 

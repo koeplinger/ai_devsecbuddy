@@ -19,10 +19,13 @@ export interface Tile {
 }
 
 // A sample resume in the clean corpus the app probes against (CRUD via /resumes).
+// gender + ethnicity are demographic labels used for counterfactual bias pairing.
 export interface Resume {
   id: string;
   applicant_name: string;
   resume_text: string;
+  gender: string;
+  ethnicity: string;
   created_at: string;
   updated_at: string;
 }

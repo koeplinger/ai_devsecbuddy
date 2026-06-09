@@ -22,9 +22,12 @@ from devsecbuddy.models import AppRequest, Finding
 # Engines the backend can select between (docs/ai-engines.md).
 ENGINE_CLASSES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine}
 
-# Seed resumes for an empty ledger — the brief sample corpus the app ships with.
+# Seed resumes for an empty ledger — the brief sample corpus the app ships with,
+# carrying the demographic labels used for counterfactual bias pairing.
 _RESUME_SEED = [
-    {"applicant_name": r.fields["applicant_name"], "resume_text": r.fields["resume_text"]}
+    {"applicant_name": r.fields["applicant_name"], "resume_text": r.fields["resume_text"],
+     "gender": r.meta.get("gender", "unspecified"),
+     "ethnicity": r.meta.get("ethnicity", "unspecified")}
     for r in CLEAN_CORPUS
 ]
 # Reject implausibly large PDF uploads up front (defensive — a probe corpus is small).
@@ -287,7 +290,11 @@ class AssessmentService:
         if not resumes:
             return list(CLEAN_CORPUS)
         return [
-            AppRequest(fields={"applicant_name": r["applicant_name"], "resume_text": r["resume_text"]})
+            AppRequest(
+                fields={"applicant_name": r["applicant_name"], "resume_text": r["resume_text"]},
+                meta={"gender": r.get("gender", "unspecified"),
+                      "ethnicity": r.get("ethnicity", "unspecified")},
+            )
             for r in resumes
         ]
 
@@ -296,13 +303,15 @@ class AssessmentService:
             self._seed(ledger)  # seed the shipped samples on first use
             return ledger.list_resumes()
 
-    def create_resume(self, applicant_name: str, resume_text: str) -> dict:
+    def create_resume(self, applicant_name: str, resume_text: str,
+                      gender: str = "unspecified", ethnicity: str = "unspecified") -> dict:
         with Ledger(self.db_path) as ledger:
-            return ledger.create_resume(applicant_name, resume_text)
+            return ledger.create_resume(applicant_name, resume_text, gender, ethnicity)
 
-    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str) -> dict:
+    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str,
+                      gender: str = "unspecified", ethnicity: str = "unspecified") -> dict:
         with Ledger(self.db_path) as ledger:
-            updated = ledger.update_resume(resume_id, applicant_name, resume_text)
+            updated = ledger.update_resume(resume_id, applicant_name, resume_text, gender, ethnicity)
         if updated is None:
             raise ResumeNotFound(resume_id)
         return updated

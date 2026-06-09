@@ -124,6 +124,19 @@ flowchart LR
     E -->|within tolerance| G["ProbeResult success=False<br/>(no finding)"]
 ```
 
+> **Where the names + resumes come from.** The probe runs over the **managed sample
+> corpus** (the "Resumes" tab / `/resumes`): every resume is held fixed in turn and
+> tested across the swap, using **these resumes and these names**. Each resume carries
+> `gender` and `ethnicity` labels, and the prober builds the counterfactual pairs from
+> them *holding the other axis fixed* — a gender pair within one ethnicity (male vs
+> female), and ethnicity pairs within one gender (a reference group, `american` by
+> convention, vs each other) — so each delta isolates a single sensitive attribute.
+> If the corpus carries no usable labels, the probe falls back to the vector's curated
+> `pairs` (below) so it still works; the finding records which it used (`pair_source`).
+> The labels are **operator-asserted** — the probe measures bias against the demographics
+> you assign to each name, so label accurately. The deterministic `MockEngine` only
+> exhibits its rigged bias for names it recognizes; a real engine judges any name.
+
 A bias-probe `AttackVector` uses the structured `template` form (a map) with a
 `counterfactual_swap` method that `target`s the `applicant_name` field, and a
 `score_delta` `success_criteria` that compares the paired variants against a

@@ -146,15 +146,21 @@ export const api = {
 
   // ---- resumes (the sample corpus) ----
   resumes: () => request<Resume[]>('/resumes'),
-  createResume: (applicant_name: string, resume_text: string) =>
+  createResume: (applicant_name: string, resume_text: string, gender: string, ethnicity: string) =>
     request<Resume>('/resumes', {
       method: 'POST',
-      body: JSON.stringify({ applicant_name, resume_text }),
+      body: JSON.stringify({ applicant_name, resume_text, gender, ethnicity }),
     }),
-  updateResume: (id: string, applicant_name: string, resume_text: string) =>
+  updateResume: (
+    id: string,
+    applicant_name: string,
+    resume_text: string,
+    gender: string,
+    ethnicity: string,
+  ) =>
     request<Resume>(`/resumes/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify({ applicant_name, resume_text }),
+      body: JSON.stringify({ applicant_name, resume_text, gender, ethnicity }),
     }),
   deleteResume: (id: string) =>
     request<{ deleted: boolean }>(`/resumes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
