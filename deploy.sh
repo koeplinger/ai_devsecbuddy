@@ -27,6 +27,27 @@ PY="$VENV/bin/python"
 RUN_DIR="$ROOT/.run"
 mkdir -p "$RUN_DIR" "$ROOT/data"
 
+# Pick a Python interpreter that is 3.10+ (the package requires it). macOS ships an
+# old /usr/bin/python3, so prefer an explicit python3.NN if one is installed.
+pick_python() {
+  local cand
+  for cand in python3.12 python3.11 python3.10 python3; do
+    if command -v "$cand" >/dev/null 2>&1 && \
+       "$cand" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+      command -v "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(pick_python || true)"
+[ -n "$PYTHON_BIN" ] || {
+  echo "ERROR: Python 3.10+ is required (found only older versions)."
+  echo "Install Python 3.10+ (for example: python3.11 or python3.12) and rerun."
+  exit 1
+}
+
 # Load .env (ANTHROPIC_API_KEY, DEVSECBUDDY_* overrides) without echoing it.
 if [ -f "$ROOT/.env" ]; then set -a; . "$ROOT/.env"; set +a; fi
 
@@ -40,10 +61,12 @@ warn() { printf '\033[1;33m  ! %s\033[0m\n' "$*"; }
 # --------------------------------------------------------------- stop helpers
 kill_port() {  # free a TCP port, whatever holds it
   local port="$1" pids
-  if command -v fuser >/dev/null 2>&1; then
-    fuser -k "${port}/tcp" 2>/dev/null || true
-  elif command -v lsof >/dev/null 2>&1; then
+  # macOS usually has lsof but either no fuser or an incompatible fuser.
+  if command -v lsof >/dev/null 2>&1; then
     lsof -ti "tcp:${port}" 2>/dev/null | xargs -r kill 2>/dev/null || true
+  elif command -v fuser >/dev/null 2>&1; then
+    # Different fuser variants accept different flags; this syntax is the most portable.
+    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
   elif command -v ss >/dev/null 2>&1; then
     pids="$(ss -ltnpH "sport = :${port}" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u)"
     [ -n "$pids" ] && kill $pids 2>/dev/null || true
@@ -76,9 +99,15 @@ stop_all
 
 # --------------------------------------------------------------- 2. install
 step "Installing backend dependencies (Python venv)…"
+# A pre-existing .venv built with an old Python (e.g. macOS's 3.9) can't run the app;
+# recreate it with the interpreter we picked above.
+if [ -x "$PY" ] && ! "$PY" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
+  warn "existing .venv uses Python < 3.10; recreating it with $PYTHON_BIN"
+  rm -rf "$VENV"
+fi
 if [ ! -x "$PY" ]; then
   # --system-site-packages so the venv can see system pyyaml/pytest if present.
-  python3 -m venv --system-site-packages "$VENV" 2>/dev/null || true
+  "$PYTHON_BIN" -m venv --system-site-packages "$VENV" 2>/dev/null || true
 fi
 [ -x "$PY" ] || { echo "ERROR: could not create $VENV (need python3 + python3-venv)"; exit 1; }
 
@@ -90,7 +119,7 @@ py_install() {
     # venv's site-packages with the *system* pip (PEP 668 → --break-system-packages).
     local purelib
     purelib="$("$PY" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-    python3 -m pip install --quiet --target="$purelib" --break-system-packages "$@"
+    "$PYTHON_BIN" -m pip install --quiet --target="$purelib" --break-system-packages "$@"
   fi
 }
 if "$PY" -c "import fastapi, uvicorn, yaml, httpx, anthropic, google.genai" 2>/dev/null; then
@@ -102,7 +131,21 @@ else
 fi
 
 step "Installing frontend dependencies (npm)…"
-npm --prefix "$ROOT/frontend" install --no-fund --no-audit
+# npm@11 can crash with `filters.reduce is not a function` when a user-level
+# .npmrc has `workspace=` set. Use a temporary user config without that key.
+npm_userconfig=""
+npm_userconfig_cleanup() {
+  [ -n "${npm_userconfig:-}" ] && rm -f "$npm_userconfig"
+}
+trap npm_userconfig_cleanup EXIT
+
+npm_userconfig="$(mktemp)"
+if [ -f "$HOME/.npmrc" ]; then
+  grep -v '^workspace=' "$HOME/.npmrc" > "$npm_userconfig" || true
+fi
+
+NPM_CONFIG_USERCONFIG="$npm_userconfig" \
+  npm --prefix "$ROOT/frontend" install --no-fund --no-audit
 
 # --------------------------------------------------------------- 3. migrate
 step "Bootstrapping the SQLite ledger schema…"
@@ -116,7 +159,8 @@ PY
 
 # --------------------------------------------------------------- 4. build + start
 step "Building the frontend…"
-npm --prefix "$ROOT/frontend" run build
+NPM_CONFIG_USERCONFIG="$npm_userconfig" \
+  npm --prefix "$ROOT/frontend" run build
 
 step "Starting backend on :$BACKEND_PORT …"
 nohup "$PY" -m uvicorn backend.main:app --host 127.0.0.1 --port "$BACKEND_PORT" \
