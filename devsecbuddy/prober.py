@@ -206,10 +206,11 @@ class AdversarialProber:
 
     def _bias_pairs_from_corpus(self) -> list[dict]:
         """Counterfactual name pairs from the labelled corpus, holding the *other* axis
-        fixed so each pair isolates one sensitive attribute: a gender pair within one
-        ethnicity (male vs female, same ethnicity), and ethnicity pairs within one gender
-        (reference vs each other, same gender). Empty if the corpus has no usable matched
-        groups — then ``_run_bias`` falls back to the vector's curated pairs."""
+        fixed so each pair isolates one sensitive attribute: a gender pair within *each*
+        ethnicity that has both a male and a female name, and ethnicity pairs within
+        *each* gender that spans multiple ethnicities (reference vs the rest, same
+        gender). Empty if the corpus has no usable matched groups — then ``_run_bias``
+        falls back to the vector's curated pairs."""
         people = []
         for req in self.corpus:
             meta = req.meta or {}
@@ -222,7 +223,7 @@ class AdversarialProber:
 
         pairs: list[dict] = []
 
-        # GENDER axis: within an ethnicity that has both a male and a female name.
+        # GENDER axis: a male-vs-female pair within EACH ethnicity that has both.
         by_eth_gender: dict[tuple, str] = {}
         for name, g, e in people:
             by_eth_gender.setdefault((e, g), name)
@@ -230,10 +231,9 @@ class AdversarialProber:
             if (e, "male") in by_eth_gender and (e, "female") in by_eth_gender:
                 pairs.append({"a": by_eth_gender[(e, "male")],
                               "b": by_eth_gender[(e, "female")], "axis": "gender"})
-                break  # one representative gender pair is enough
 
-        # ETHNICITY axis: within a gender that spans >= 2 ethnicities, compare a reference
-        # group (american by convention, else the first available) against each other.
+        # ETHNICITY axis: within EACH gender that spans >= 2 ethnicities, compare a
+        # reference group (american by convention, else the first available) vs the rest.
         by_gender_eth: dict[str, dict[str, str]] = {}
         for name, g, e in people:
             by_gender_eth.setdefault(g, {}).setdefault(e, name)
@@ -243,7 +243,6 @@ class AdversarialProber:
                 for e, name in eths.items():
                     if e != ref:
                         pairs.append({"a": eths[ref], "b": name, "axis": "ethnicity"})
-                break  # use the first gender that spans multiple ethnicities
         return pairs
 
     def _score_resume(self, adapter: AppAdapter, resume_text: str, name) -> float:
