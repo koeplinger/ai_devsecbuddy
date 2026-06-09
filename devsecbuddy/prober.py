@@ -40,7 +40,7 @@ class AdversarialProber:
             if on_event is not None:
                 on_event({"type": "probe_started", "index": index, "total": total,
                           "vector_id": v.id, "category": v.category, "severity": v.severity})
-            r = self._run_vector(adapter, v)
+            r = self._run_vector(adapter, v, on_event)
             results.append(r)
             if on_event is not None:
                 on_event({"type": "probe_done", "index": index, "total": total,
@@ -89,10 +89,10 @@ class AdversarialProber:
             return float(stats["__overall__"]["mean"])
         return 0.0
 
-    def _run_vector(self, adapter: AppAdapter, vector: AttackVector) -> ProbeResult:
+    def _run_vector(self, adapter: AppAdapter, vector: AttackVector, on_event=None) -> ProbeResult:
         ctype = (vector.success_criteria or {}).get("type")
         if vector.category == "bias_fairness" or ctype == "score_delta":
-            return self._run_bias(adapter, vector)
+            return self._run_bias(adapter, vector, on_event)
         return self._run_single(adapter, vector)
 
     def _run_single(self, adapter: AppAdapter, vector: AttackVector) -> ProbeResult:
@@ -149,13 +149,20 @@ class AdversarialProber:
                     "tile did NOT refuse a malicious request" if not refused else "tile refused as expected")
         return False, None, f"unsupported success_criteria type {ctype!r}; treated as no-finding"
 
-    def _run_bias(self, adapter: AppAdapter, vector: AttackVector) -> ProbeResult:
+    def _run_bias(self, adapter: AppAdapter, vector: AttackVector, on_event=None) -> ProbeResult:
         template = vector.template if isinstance(vector.template, dict) else {}
         # Prefer counterfactual pairs built from the *labelled corpus* (these resumes +
         # these names); fall back to the vector's curated pairs if the corpus is unlabelled.
         corpus_pairs = self._bias_pairs_from_corpus()
         pairs = corpus_pairs or template.get("pairs", [])
         pair_source = "corpus" if corpus_pairs else "curated"
+
+        # Stream one event per distinct name swap (from -> to) so the run console can
+        # show what the bias probe is comparing.
+        if on_event is not None:
+            for pair in pairs:
+                on_event({"type": "name_swap", "axis": pair.get("axis", "unspecified"),
+                          "from": pair.get("a"), "to": pair.get("b")})
 
         cache: dict = {}  # (resume index, name) -> score, so each pair reuses scorings
 

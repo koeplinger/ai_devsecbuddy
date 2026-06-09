@@ -35,6 +35,8 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       return withLine(`   ▸ ${ev.index}/${ev.total}  ${ev.vector_id} (${ev.category}) running…`, {
         current: { index: ev.index, total: ev.total, label: `${ev.vector_id} (${ev.category})` },
       });
+    case 'name_swap':
+      return withLine(`       ↔ name swap (${ev.axis}): ${ev.from} → ${ev.to}`);
     case 'probe_done':
       return withLine(
         `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,

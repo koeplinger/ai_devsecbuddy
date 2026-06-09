@@ -206,6 +206,17 @@ def test_probe_emits_progress_events(vectors, tmp_path):
     first = next(e for e in events if e["type"] == "probe_started")
     assert first["index"] == 1 and first["total"] == 6 and first["vector_id"]
 
+    # the bias probe streams one name_swap event per distinct counterfactual pair,
+    # nested between its probe_started and probe_done
+    swaps = [e for e in events if e["type"] == "name_swap"]
+    assert swaps and all({"from", "to", "axis"} <= e.keys() for e in swaps)
+    assert {e["axis"] for e in swaps} <= {"gender", "ethnicity"}
+    bias_start = next(i for i, e in enumerate(events)
+                      if e["type"] == "probe_started" and e["category"] == "bias_fairness")
+    bias_done = next(i for i, e in enumerate(events)
+                     if e["type"] == "probe_done" and e["category"] == "bias_fairness")
+    assert all(bias_start < events.index(s) < bias_done for s in swaps)
+
 
 def test_findings_dedupe_within_run(vectors, tmp_path):
     adapter = TILES["tile-unguarded"](get_engine("mock"))

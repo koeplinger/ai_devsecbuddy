@@ -134,6 +134,7 @@ export type RunEvent =
       category: string;
       severity: string;
     }
+  | { type: 'name_swap'; axis: string; from: string; to: string }
   | {
       type: 'probe_done';
       index: number;
