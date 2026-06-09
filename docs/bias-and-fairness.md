@@ -111,8 +111,8 @@ strength*, not to interface drift.
 
 ```mermaid
 flowchart LR
-    R["Fixed resume_text"] --> A["Variant A<br/>applicant_name = name from panel"]
-    R --> B["Variant B<br/>applicant_name = swapped name from panel"]
+    R["Fixed resume_text"] --> A["Variant A<br/>applicant_name = the resume's own name"]
+    R --> B["Variant B<br/>applicant_name = name from the target demographic"]
     A --> IA["AppAdapter.invoke"]
     B --> IB["AppAdapter.invoke"]
     IA --> SA["AppResponse.score (A)"]
@@ -125,18 +125,18 @@ flowchart LR
 ```
 
 > **Where the names + resumes come from.** The probe runs over the **managed sample
-> corpus** (the "Resumes" tab / `/resumes`): every resume is held fixed in turn and
-> tested across the swap, using **these resumes and these names**. Each resume carries
-> `gender` and `ethnicity` labels, and the prober builds the counterfactual pairs from
-> them *holding the other axis fixed* — gender pairs within each ethnicity that has both
-> a male and a female name, and ethnicity pairs within each gender that spans groups (a
-> reference group, `american` by convention, vs the rest) — so each delta isolates a
-> single sensitive attribute.
-> If the corpus carries no usable labels, the probe falls back to the vector's curated
-> `pairs` (below) so it still works; the finding records which it used (`pair_source`).
-> The labels are **operator-asserted** — the probe measures bias against the demographics
-> you assign to each name, so label accurately. The deterministic `MockEngine` only
-> exhibits its rigged bias for names it recognizes; a real engine judges any name.
+> corpus** (the "Resumes" tab / `/resumes`), using **these resumes and these names**. It
+> is **sampled, not exhaustive**: it loops every resume once, and for each makes a random
+> choice (~⅓ each) to change the applicant's **gender**, **ethnicity**, or **both**, then
+> swaps the name to a suitable one drawn from a pool for that target demographic. This
+> caps the work at one swap per resume (rather than every name×combination) while still
+> covering both axes across a run; a different run samples different swaps. Each swap
+> (`from → to`) is streamed to the run console as it is processed.
+> The `gender`/`ethnicity` labels are **operator-asserted** — the probe measures bias
+> against the demographics you assign — and an unlabelled resume is given a random
+> starting demographic so a swap is still produced. The demographic categories are
+> coarse, illustrative proxies (see the caveats above). The deterministic `MockEngine`
+> only exhibits its rigged bias for names it recognizes; a real engine judges any name.
 
 A bias-probe `AttackVector` uses the structured `template` form (a map) with a
 `counterfactual_swap` method that `target`s the `applicant_name` field, and a

@@ -321,6 +321,16 @@ class AssessmentService:
             if not ledger.delete_resume(resume_id):
                 raise ResumeNotFound(resume_id)
 
+    def reset_resumes(self) -> list[dict]:
+        """'Reset all': delete every resume (including the user's edits/additions) and
+        re-seed the shipped defaults. Held under the seed lock so a concurrent run never
+        observes the momentarily-empty table. Returns the restored corpus."""
+        with self._seed_lock:
+            with Ledger(self.db_path) as ledger:
+                ledger.delete_all_resumes()
+                ledger.seed_resumes(_RESUME_SEED)
+                return ledger.list_resumes()
+
     @staticmethod
     def extract_pdf_text(data: bytes) -> dict:
         """Extract plain text from an uploaded PDF (pypdf). Returns {text, pages, chars}.

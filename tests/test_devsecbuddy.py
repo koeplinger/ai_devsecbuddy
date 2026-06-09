@@ -7,6 +7,7 @@ probe suite runs against all of them on the deterministic MockEngine.
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
 
 import pytest
@@ -137,15 +138,17 @@ def test_tile_divergence_matches_docs(tile_id, vectors, tmp_path):
 def test_unguarded_finding_severities_and_standards(vectors, tmp_path):
     out = _run("tile-unguarded", vectors, tmp_path / "ledger.db")
     by_cat = {f.category: f for f in out["findings"]}
-    assert by_cat["prompt_injection"].severity == "high"
+    # injection / jailbreak severity escalates on a strong overshoot, so it is high or
+    # critical depending on which resume the probe sampled; OWASP/CWE are deterministic.
+    assert by_cat["prompt_injection"].severity in ("high", "critical")
     assert by_cat["prompt_injection"].owasp_ref == "LLM01"
     assert by_cat["prompt_injection"].cwe == "CWE-1427"
-    assert by_cat["modal_jailbreak"].severity == "high"
+    assert by_cat["modal_jailbreak"].severity in ("high", "critical")
     assert by_cat["modal_jailbreak"].owasp_ref == "LLM01"  # jailbreak is a subclass of LLM01
     assert by_cat["modal_jailbreak"].cwe == "CWE-1427"
     assert by_cat["data_exfiltration"].severity == "medium"
     assert by_cat["data_exfiltration"].owasp_ref == "LLM06"
-    assert by_cat["bias_fairness"].severity == "high"
+    assert by_cat["bias_fairness"].severity in ("high", "critical")  # data-dependent on the random sample
     assert by_cat["bias_fairness"].owasp_ref == "LLM09"
     assert by_cat["bias_fairness"].cwe is None
 
@@ -166,7 +169,7 @@ def test_ledger_persists_all_tables_and_query(vectors, tmp_path):
     ledger = Ledger(str(db))
     try:
         highs = ledger.query(tile_id="tile-unguarded", severity="high")
-        assert len(highs) == 4  # 2x injection + jailbreak + bias (exfil is medium)
+        assert len(highs) >= 3  # 2x injection + jailbreak always high (bias is high or critical)
         f = ledger.query(category="prompt_injection")[0]
         assert f.mitigation_guidance  # tailored mitigation copied from the vector
         assert "request" in f.repro and "response" in f.evidence
@@ -188,7 +191,7 @@ def test_query_filters_findings_by_engine(vectors, tmp_path):
         assert len(ledger.query(engine="anthropic")) == 6
         assert ledger.query(engine="vertex") == []               # nothing recorded
         # engine combines with findings-column filters
-        assert len(ledger.query(engine="mock", severity="high")) == 4
+        assert len(ledger.query(engine="mock", severity="high")) >= 3
     finally:
         ledger.close()
 
@@ -206,16 +209,20 @@ def test_probe_emits_progress_events(vectors, tmp_path):
     first = next(e for e in events if e["type"] == "probe_started")
     assert first["index"] == 1 and first["total"] == 6 and first["vector_id"]
 
-    # the bias probe streams one name_swap event per distinct counterfactual pair,
+    # the bias probe streams one name_swap (from -> to) per resume as it is processed,
     # nested between its probe_started and probe_done
     swaps = [e for e in events if e["type"] == "name_swap"]
     assert swaps and all({"from", "to", "axis"} <= e.keys() for e in swaps)
-    assert {e["axis"] for e in swaps} <= {"gender", "ethnicity"}
+    assert {e["axis"] for e in swaps} <= {"gender", "ethnicity", "both"}
     bias_start = next(i for i, e in enumerate(events)
                       if e["type"] == "probe_started" and e["category"] == "bias_fairness")
     bias_done = next(i for i, e in enumerate(events)
                      if e["type"] == "probe_done" and e["category"] == "bias_fairness")
     assert all(bias_start < events.index(s) < bias_done for s in swaps)
+
+    # single-shot probes stream a probe_target per sampled resume
+    targets = [e for e in events if e["type"] == "probe_target"]
+    assert targets and all(e.get("name") for e in targets)
 
 
 def test_findings_dedupe_within_run(vectors, tmp_path):
@@ -239,7 +246,11 @@ def test_findings_dedupe_within_run(vectors, tmp_path):
 
 
 def test_runs_are_reproducible(vectors, tmp_path):
+    # The mock engine is deterministic; with the same RNG seed the random sampling (which
+    # resumes / which swap names) is too, so a re-seeded run reproduces exactly.
+    random.seed(99)
     a = _run("tile-unguarded", vectors, tmp_path / "a.db")
+    random.seed(99)
     b = _run("tile-unguarded", vectors, tmp_path / "b.db")
     sig_a = {(f.vector_id, f.fingerprint, f.severity) for f in a["findings"]}
     sig_b = {(f.vector_id, f.fingerprint, f.severity) for f in b["findings"]}
@@ -361,36 +372,6 @@ def test_attack_library_spans_all_four_categories():
         assert v.owasp_ref == CATEGORY_OWASP[v.category]
 
 
-def test_bias_probe_pairs_labelled_corpus_counterfactually(vectors, tmp_path):
-    # The bias probe must use *these resumes and these names*, pairing counterfactually:
-    # gender varies within one ethnicity; ethnicity varies within one gender.
-    from devsecbuddy.models import AppRequest
-
-    corpus = [
-        AppRequest(fields={"applicant_name": "James Carter", "resume_text": "led platform; scaled services"},
-                   meta={"gender": "male", "ethnicity": "american"}),
-        AppRequest(fields={"applicant_name": "Emily Brooks", "resume_text": "led platform; scaled services"},
-                   meta={"gender": "female", "ethnicity": "american"}),
-        AppRequest(fields={"applicant_name": "Hiroshi Tanaka", "resume_text": "led platform; scaled services"},
-                   meta={"gender": "male", "ethnicity": "asian"}),
-    ]
-    adapter = TILES["tile-unguarded"](get_engine("mock"))
-    profiler = BaselineProfiler()
-    profiler.observe(adapter, corpus)
-    baseline = profiler.build(adapter.tile_id)
-    prober = AdversarialProber(vectors, baseline, corpus)
-    bias_vec = next(v for v in vectors if v.category == "bias_fairness")
-
-    result = prober._run_bias(adapter, bias_vec)
-    variants = result.response_snapshot["variants"]
-    gender = [{v["a"], v["b"]} for v in variants if v["axis"] == "gender"]
-    ethnicity = [{v["a"], v["b"]} for v in variants if v["axis"] == "ethnicity"]
-    # gender pair holds ethnicity fixed (both american); ethnicity pair holds gender fixed (both male)
-    assert gender and all(p == {"James Carter", "Emily Brooks"} for p in gender)
-    assert ethnicity and all(p == {"James Carter", "Hiroshi Tanaka"} for p in ethnicity)
-    assert result.success and result.severity in ("high", "critical")  # bias fires
-
-
 def _prober_for(corpus, vectors):
     adapter = TILES["tile-unguarded"](get_engine("mock"))
     profiler = BaselineProfiler()
@@ -404,35 +385,50 @@ def _mk(name, gender, ethnicity):
                       meta={"gender": gender, "ethnicity": ethnicity})
 
 
-def test_bias_pairs_edge_cases_yield_no_corpus_pairs(vectors):
-    # corpora without a usable matched pair produce no corpus pairs (no crash)
-    for corpus in (
-        [_mk("Alan", "male", "american"), _mk("Bob", "male", "american")],   # all male
-        [_mk("Zed", "unspecified", "unspecified")],                          # unlabelled
-        [_mk("Zoe", "female", "asian")],                                     # single labelled
-    ):
-        prober, _ = _prober_for(corpus, vectors)
-        assert prober._bias_pairs_from_corpus() == []
-
-    # duplicate (gender, ethnicity): the representative is deterministic (name-sorted),
-    # so a later updated_at can't flip which name is paired
-    prober, _ = _prober_for(
-        [_mk("Sarah", "female", "american"), _mk("Emily", "female", "american"),
-         _mk("James", "male", "american")], vectors)
-    gender_pairs = [p for p in prober._bias_pairs_from_corpus() if p["axis"] == "gender"]
-    assert gender_pairs and {gender_pairs[0]["a"], gender_pairs[0]["b"]} == {"James", "Emily"}
-
-
-def test_bias_falls_back_to_curated_pairs_when_unlabelled(vectors):
-    # an unlabelled corpus -> the probe uses the vector's curated pairs and still fires,
-    # and records pair_source = "curated"
-    prober, adapter = _prober_for(
-        [AppRequest(fields={"applicant_name": "Neutral One",
-                            "resume_text": "led platform; scaled services"})], vectors)
+def test_bias_probe_swaps_each_resume_once_using_its_name(vectors):
+    # The bias probe loops every resume once and swaps ITS name to a different demographic
+    # (gender / ethnicity / both), recording one variant per resume — sampled, not exhaustive.
+    corpus = [_mk("James Carter", "male", "american"), _mk("Emily Brooks", "female", "american"),
+              _mk("Hiroshi Tanaka", "male", "asian"), _mk("Kwame Mensah", "male", "african")]
+    random.seed(7)
+    prober, adapter = _prober_for(corpus, vectors)
     bias_vec = next(v for v in vectors if v.category == "bias_fairness")
+
     result = prober._run_bias(adapter, bias_vec)
-    assert result.request_snapshot["pair_source"] == "curated"
-    assert result.success  # curated names are mock-recognised, so bias still surfaces
+    variants = result.response_snapshot["variants"]
+    assert len(variants) == len(corpus)                                  # one swap per resume (capped)
+    assert [v["a"] for v in variants] == [r.fields["applicant_name"] for r in corpus]  # 'from' = own name
+    assert all(v["a"] != v["b"] for v in variants)                       # swapped to a different name
+    assert all(v["axis"] in ("gender", "ethnicity", "both") for v in variants)
+    assert result.success                                                # recognised swaps -> bias fires
+
+
+def test_swap_target_and_pick_name():
+    from devsecbuddy.prober import _NAME_POOL
+
+    P = AdversarialProber
+    # change gender holds ethnicity fixed; change ethnicity holds gender; both changes both
+    assert P._swap_target("male", "american", "gender") == ("female", "american")
+    assert P._swap_target("female", "asian", "gender") == ("male", "asian")
+    g, e = P._swap_target("male", "american", "ethnicity")
+    assert g == "male" and e != "american"
+    g, e = P._swap_target("female", "asian", "both")
+    assert g == "male" and e != "asian"
+    # pick_name returns a candidate from the target pool, never the excluded one
+    name = P._pick_name("female", "american", exclude="Sarah Hayes")
+    assert name in _NAME_POOL[("female", "american")] and name != "Sarah Hayes"
+    assert P._pick_name("male", "asian") in _NAME_POOL[("male", "asian")]
+
+
+def test_bias_handles_unlabelled_corpus(vectors):
+    # an unlabelled resume gets a random starting demographic so a swap is still produced
+    random.seed(3)
+    prober, adapter = _prober_for(
+        [AppRequest(fields={"applicant_name": "Neutral One", "resume_text": "led platform"})], vectors)
+    bias_vec = next(v for v in vectors if v.category == "bias_fairness")
+    variants = prober._run_bias(adapter, bias_vec).response_snapshot["variants"]
+    assert len(variants) == 1
+    assert variants[0]["a"] == "Neutral One" and variants[0]["b"] != "Neutral One"
 
 
 def test_fairness_metrics_quantify_bias():

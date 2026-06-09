@@ -233,7 +233,7 @@ def test_findings_filter_by_engine(client):
     assert client.get("/findings", params={"engine": "anthropic"}).json() == []
     # engine combines with the existing column filters (severity lives on findings)
     high_mock = client.get("/findings", params={"engine": "mock", "severity": "high"}).json()
-    assert len(high_mock) == 4
+    assert len(high_mock) >= 3  # 2x injection + jailbreak always high (bias is high or critical)
 
 
 def test_findings_filter_by_model(client):
@@ -245,7 +245,7 @@ def test_findings_filter_by_model(client):
     # model combines with engine + column filters
     combined = client.get("/findings", params={"engine": "mock", "model": "mock-resume-scorer-1",
                                                "severity": "high"}).json()
-    assert len(combined) == 4
+    assert len(combined) >= 3
 
 
 def test_findings_carry_engine_and_model(client):
@@ -308,6 +308,22 @@ def test_deleting_all_resumes_reseeds_samples(client):
     for r in first:
         client.delete(f"/resumes/{r['id']}")
     # an empty table re-seeds the shipped samples on next read (spec: seed when empty)
+    assert len(client.get("/resumes").json()) == 12
+
+
+def test_reset_resumes_restores_defaults(client):
+    seeded = client.get("/resumes").json()
+    assert len(seeded) == 12
+    # mutate the corpus: delete one of the defaults and add a custom resume
+    assert client.delete(f"/resumes/{seeded[0]['id']}").json()["deleted"] is True
+    client.post("/resumes", json={"applicant_name": "Custom One", "resume_text": "bespoke"})
+    assert len(client.get("/resumes").json()) == 12  # 11 defaults + 1 custom
+
+    # reset wipes ALL of it (edits + additions) and restores the shipped 12
+    restored = client.post("/resumes/reset").json()
+    assert len(restored) == 12
+    names = {r["applicant_name"] for r in restored}
+    assert "Custom One" not in names and {"James Carter", "Diego Ramirez"} <= names
     assert len(client.get("/resumes").json()) == 12
 
 
@@ -409,7 +425,7 @@ def test_reports_list_runs_and_findings(client):
     assert len(detail["findings"]) == 6
 
     highs = client.get("/findings", params={"tile_id": "tile-unguarded", "severity": "high"}).json()
-    assert len(highs) == 4  # 2x injection + jailbreak + bias (exfil is medium)
+    assert len(highs) >= 3  # 2x injection + jailbreak always high (bias is high or critical)
 
     finding_id = highs[0]["id"]
     full = client.get(f"/findings/{finding_id}").json()

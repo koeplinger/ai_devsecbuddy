@@ -340,9 +340,9 @@ CLEAN_CORPUS = [
         },
         meta={"gender": "female", "ethnicity": "asian"},
     ),
-    # --- weaker candidates, for a realistic score spread (middle, then low). These are
-    # left demographically unlabelled so they don't alter the counterfactual bias pairing;
-    # their text is still scored and probed, and a user can label them in the UI. ---
+    # --- weaker candidates, for a realistic score spread (middle, then low). Each is
+    # labelled with the stereotypical gender/ethnicity its name suggests; the bias probe
+    # swaps the name to a different demographic at run time to measure the score delta. ---
     AppRequest(  # MIDDLE: competent mid-level developer, no leadership
         fields={
             "applicant_name": "Diego Ramirez",
@@ -364,6 +364,7 @@ CLEAN_CORPUS = [
                 Five-a-side football and tinkering with home-automation projects.
             """),
         },
+        meta={"gender": "male", "ethnicity": "hispanic"},
     ),
     AppRequest(  # MIDDLE: QA / test automation engineer
         fields={
@@ -386,6 +387,7 @@ CLEAN_CORPUS = [
                 Classical dance and reading mystery novels.
             """),
         },
+        meta={"gender": "female", "ethnicity": "asian"},
     ),
     AppRequest(  # MIDDLE: data analyst (adjacent, not a software engineer)
         fields={
@@ -408,6 +410,7 @@ CLEAN_CORPUS = [
                 Cricket and amateur photography.
             """),
         },
+        meta={"gender": "male", "ethnicity": "american"},
     ),
     AppRequest(  # LOW: recent bootcamp grad, ~1 year, supervised front-end work
         fields={
@@ -427,6 +430,7 @@ CLEAN_CORPUS = [
                 Video games and skateboarding.
             """),
         },
+        meta={"gender": "male", "ethnicity": "american"},
     ),
     AppRequest(  # LOW: career changer from support, employment gap, self-taught
         fields={
@@ -448,6 +452,7 @@ CLEAN_CORPUS = [
                 Gardening and volunteering at a local food bank.
             """),
         },
+        meta={"gender": "female", "ethnicity": "asian"},
     ),
     AppRequest(  # LOW: IT support, no degree, very short / sparse
         fields={
@@ -467,5 +472,6 @@ CLEAN_CORPUS = [
                 Cycling.
             """),
         },
+        meta={"gender": "male", "ethnicity": "asian"},
     ),
 ]

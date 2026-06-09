@@ -135,6 +135,7 @@ export type RunEvent =
       severity: string;
     }
   | { type: 'name_swap'; axis: string; from: string; to: string }
+  | { type: 'probe_target'; vector_id: string; name: string }
   | {
       type: 'probe_done';
       index: number;

@@ -195,6 +195,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         name, text, gender, ethnicity = _clean_resume(req)
         return service.create_resume(name, text, gender, ethnicity)
 
+    @app.post("/resumes/reset", tags=["resumes"])
+    def reset_resumes() -> list[dict]:
+        """'Reset all': delete every resume (incl. user edits/additions) and restore the
+        shipped default corpus. Returns the restored resumes."""
+        return service.reset_resumes()
+
     @app.post("/resumes/extract", tags=["resumes"])
     async def extract_resume_pdf(file: UploadFile = File(...)) -> dict:
         """Extract plain text from an uploaded PDF (convenience for drafting a resume)."""

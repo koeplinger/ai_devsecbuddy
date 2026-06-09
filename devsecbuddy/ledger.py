@@ -344,6 +344,13 @@ class Ledger:
         self.conn.commit()
         return cur.rowcount > 0
 
+    def delete_all_resumes(self) -> int:
+        """Delete every resume; returns how many were removed. Used by 'Reset all', which
+        then re-seeds the shipped defaults via ``seed_resumes``."""
+        cur = self.conn.execute("DELETE FROM resumes")
+        self.conn.commit()
+        return cur.rowcount
+
     def seed_resumes(self, items: list[dict]) -> int:
         """Insert seed resumes only if the table is empty; returns how many were added.
 

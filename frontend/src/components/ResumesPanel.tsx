@@ -30,6 +30,8 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -153,6 +155,25 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
       });
   };
 
+  const doReset = () => {
+    setResetting(true);
+    setActionError(null);
+    api
+      .resetResumes()
+      .then((rs) => {
+        if (!mounted.current) return;
+        setConfirmReset(false);
+        setResumes(rs);
+        setSelectedId(rs[0]?.id ?? null); // discards any draft; editor repopulates from selection
+      })
+      .catch((e: unknown) => {
+        if (mounted.current) setActionError(e instanceof ApiError ? e.message : String(e));
+      })
+      .finally(() => {
+        if (mounted.current) setResetting(false);
+      });
+  };
+
   const onPickPdf = () => fileRef.current?.click();
   const onPdfChosen = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -207,6 +228,17 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
             </button>
             <button className="btn" onClick={onPickPdf} disabled={extracting}>
               {extracting ? 'Extracting…' : 'Extract from PDF'}
+            </button>
+            <button
+              className="btn danger-ghost"
+              onClick={() => {
+                setActionError(null);
+                setConfirmReset(true);
+              }}
+              disabled={resetting}
+              title="Delete all resumes and restore the shipped defaults"
+            >
+              Reset all
             </button>
             <input
               ref={fileRef}
@@ -336,6 +368,21 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
           onConfirm={doDelete}
         >
           This permanently removes this sample resume from the corpus. This cannot be undone.
+        </ConfirmModal>
+      )}
+
+      {confirmReset && (
+        <ConfirmModal
+          title="Reset all resumes?"
+          confirmLabel={resetting ? 'Resetting…' : 'Reset to defaults'}
+          danger
+          busy={resetting}
+          error={actionError}
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={doReset}
+        >
+          This permanently deletes <strong>all resumes</strong> and any modifications you have made,
+          and replaces them with the application’s initial default configuration. This cannot be undone.
         </ConfirmModal>
       )}
     </section>

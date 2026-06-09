@@ -164,6 +164,8 @@ export const api = {
     }),
   deleteResume: (id: string) =>
     request<{ deleted: boolean }>(`/resumes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Delete every resume (including user edits) and restore the shipped defaults.
+  resetResumes: () => request<Resume[]>('/resumes/reset', { method: 'POST' }),
   // PDF upload uses multipart/form-data, so it bypasses the JSON request() helper.
   extractResumePdf: async (file: File): Promise<{ text: string; pages: number; chars: number }> => {
     const form = new FormData();

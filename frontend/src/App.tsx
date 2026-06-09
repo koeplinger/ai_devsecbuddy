@@ -37,6 +37,8 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       });
     case 'name_swap':
       return withLine(`       ↔ name swap (${ev.axis}): ${ev.from} → ${ev.to}`);
+    case 'probe_target':
+      return withLine(`       · testing resume: ${ev.name}`);
     case 'probe_done':
       return withLine(
         `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,
