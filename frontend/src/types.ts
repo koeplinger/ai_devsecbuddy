@@ -18,6 +18,15 @@ export interface Tile {
   guardrails: string[];
 }
 
+// A sample resume in the clean corpus the app probes against (CRUD via /resumes).
+export interface Resume {
+  id: string;
+  applicant_name: string;
+  resume_text: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ModelInfo {
   id: string;
   tier: string; // low | mid | high | n/a

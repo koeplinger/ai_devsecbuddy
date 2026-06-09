@@ -4,9 +4,10 @@ import type { EngineInfo, Health, RunEvent, Tile, TileRun } from './types';
 import { TilesGrid } from './components/TilesGrid';
 import { RunConsole } from './components/RunConsole';
 import { LedgerViewer } from './components/LedgerViewer';
+import { ResumesPanel } from './components/ResumesPanel';
 import { FindingDetail } from './components/FindingDetail';
 
-type Tab = 'runs' | 'ledger';
+type Tab = 'runs' | 'ledger' | 'resumes';
 
 // Fold one streaming event into a tile's run state, appending a human-readable
 // progress line. Pure — the backend (devsecbuddy/runner.py) is the source of truth
@@ -67,6 +68,7 @@ export function App() {
   const [bootError, setBootError] = useState<string | null>(null);
 
   const [tab, setTab] = useState<Tab>('runs');
+  const [resumesDirty, setResumesDirty] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState('mock');
   const [selectedModel, setSelectedModel] = useState('');
 
@@ -214,6 +216,22 @@ export function App() {
     [engines],
   );
 
+  // Warn before leaving the Resumes tab with unsaved edits.
+  const changeTab = useCallback(
+    (next: Tab) => {
+      if (
+        tab === 'resumes' &&
+        next !== 'resumes' &&
+        resumesDirty &&
+        !window.confirm('Discard unsaved resume changes?')
+      ) {
+        return;
+      }
+      setTab(next);
+    },
+    [tab, resumesDirty],
+  );
+
   return (
     <div className="app">
       <header className="topbar">
@@ -242,19 +260,28 @@ export function App() {
       ) : (
         <>
           <nav className="tabs" aria-label="Views">
-            <button className={tab === 'runs' ? 'tab active' : 'tab'} onClick={() => setTab('runs')}>
+            <button
+              className={tab === 'runs' ? 'tab active' : 'tab'}
+              onClick={() => changeTab('runs')}
+            >
               Tiles &amp; runs
             </button>
             <button
               className={tab === 'ledger' ? 'tab active' : 'tab'}
-              onClick={() => setTab('ledger')}
+              onClick={() => changeTab('ledger')}
             >
               Vulnerability ledger
+            </button>
+            <button
+              className={tab === 'resumes' ? 'tab active' : 'tab'}
+              onClick={() => changeTab('resumes')}
+            >
+              Resumes
             </button>
           </nav>
 
           <main className="stack">
-            {tab === 'runs' ? (
+            {tab === 'runs' && (
               <>
                 <TilesGrid
                   tiles={tiles}
@@ -272,7 +299,8 @@ export function App() {
                   onDismiss={onDismissRun}
                 />
               </>
-            ) : (
+            )}
+            {tab === 'ledger' && (
               <LedgerViewer
                 tiles={tiles}
                 engineNames={engineNames}
@@ -282,6 +310,7 @@ export function App() {
                 onOpenFinding={setSelectedFindingId}
               />
             )}
+            {tab === 'resumes' && <ResumesPanel onDirtyChange={setResumesDirty} />}
           </main>
         </>
       )}

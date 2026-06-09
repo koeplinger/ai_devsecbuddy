@@ -725,3 +725,123 @@ h4 {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* ---- resumes ---- */
+.resumes-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 1.1rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .resumes-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.resume-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.resume-list-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.resume-list-actions .btn {
+  flex: 1;
+  font-size: 0.82rem;
+  padding: 0.4rem 0.5rem;
+  white-space: nowrap;
+}
+.resume-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 480px;
+  overflow-y: auto;
+}
+.resume-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font: inherit;
+}
+.resume-item:hover {
+  background: #f7f8fc;
+}
+.resume-item.active {
+  border-color: var(--accent);
+  background: #eef0ff;
+}
+.resume-item strong {
+  font-size: 0.9rem;
+}
+.resume-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.resume-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.resume-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.resume-editor-head h3 {
+  font-size: 1rem;
+}
+.dirty-flag {
+  font-size: 0.75rem;
+  color: var(--sev-medium);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.field input,
+.field textarea {
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--ink);
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+}
+.field textarea {
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 160px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
+.field input:focus,
+.field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

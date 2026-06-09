@@ -122,12 +122,13 @@ py_install() {
     "$PYTHON_BIN" -m pip install --quiet --target="$purelib" --break-system-packages "$@"
   fi
 }
-if "$PY" -c "import fastapi, uvicorn, yaml, httpx, anthropic, google.genai" 2>/dev/null; then
+if "$PY" -c "import fastapi, uvicorn, yaml, httpx, anthropic, google.genai, pypdf, multipart" 2>/dev/null; then
   echo "  backend deps already satisfied"
 else
-  # anthropic = Claude (direct API); google-genai = Gemini on Vertex.
+  # anthropic = Claude (direct API); google-genai = Gemini on Vertex;
+  # pypdf = resume PDF text extraction; python-multipart = file uploads.
   py_install "fastapi>=0.110" "uvicorn[standard]>=0.29" "pyyaml>=6" "httpx>=0.27" \
-    "anthropic>=0.40" "google-genai>=1.0"
+    "anthropic>=0.40" "google-genai>=1.0" "pypdf>=4" "python-multipart>=0.0.9"
 fi
 
 step "Installing frontend dependencies (npm)…"

@@ -3,6 +3,7 @@ import type {
   Finding,
   FindingFilters,
   Health,
+  Resume,
   RunEvent,
   RunResult,
   RunRow,
@@ -142,4 +143,41 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ ids }),
     }),
+
+  // ---- resumes (the sample corpus) ----
+  resumes: () => request<Resume[]>('/resumes'),
+  createResume: (applicant_name: string, resume_text: string) =>
+    request<Resume>('/resumes', {
+      method: 'POST',
+      body: JSON.stringify({ applicant_name, resume_text }),
+    }),
+  updateResume: (id: string, applicant_name: string, resume_text: string) =>
+    request<Resume>(`/resumes/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ applicant_name, resume_text }),
+    }),
+  deleteResume: (id: string) =>
+    request<{ deleted: boolean }>(`/resumes/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // PDF upload uses multipart/form-data, so it bypasses the JSON request() helper.
+  extractResumePdf: async (file: File): Promise<{ text: string; pages: number; chars: number }> => {
+    const form = new FormData();
+    form.append('file', file);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/resumes/extract`, { method: 'POST', body: form });
+    } catch (err) {
+      throw new ApiError(0, `Cannot reach the backend at ${BASE}. Is it running? (${String(err)})`);
+    }
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = (await res.json()) as { detail?: string };
+        if (body?.detail) detail = body.detail;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(res.status, detail);
+    }
+    return (await res.json()) as { text: string; pages: number; chars: number };
+  },
 };

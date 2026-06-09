@@ -22,6 +22,31 @@ def client(tmp_path):
     return TestClient(app)
 
 
+def _make_pdf(text: str) -> bytes:
+    """Build a minimal single-page PDF whose only content is `text` (for extract tests)."""
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+    ]
+    stream = b"BT /F1 24 Tf 72 720 Td (" + text.encode() + b") Tj ET"
+    objs.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream")
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    pdf = b"%PDF-1.4\n"
+    offsets = []
+    for i, body in enumerate(objs, 1):
+        offsets.append(len(pdf))
+        pdf += str(i).encode() + b" 0 obj\n" + body + b"\nendobj\n"
+    xref = len(pdf)
+    pdf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        pdf += ("%010d 00000 n \n" % off).encode()
+    pdf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() + b" /Root 1 0 R >>\n"
+            b"startxref\n" + str(xref).encode() + b"\n%%EOF")
+    return pdf
+
+
 def _stream_events(client, payload) -> list[dict]:
     """POST /runs/stream and collect the NDJSON events."""
     events: list[dict] = []
@@ -252,6 +277,90 @@ def test_delete_findings_removes_them_permanently(client):
     assert client.get("/findings", params={"tile_id": "tile-unguarded"}).json() == []
     assert client.request("DELETE", "/findings", json={"ids": []}).json()["deleted"] == 0
     assert client.request("DELETE", "/findings", json={"ids": ["nope"]}).json()["deleted"] == 0
+
+
+def test_resumes_seed_crud_and_validation(client):
+    seeded = client.get("/resumes").json()
+    assert len(seeded) == 4  # the shipped sample corpus, seeded on first read
+    assert all(r["id"] and r["applicant_name"] and r["updated_at"] for r in seeded)
+
+    created = client.post("/resumes", json={"applicant_name": "Pat Doe", "resume_text": "Staff engineer."})
+    assert created.status_code == 201
+    rid = created.json()["id"]
+    assert len(client.get("/resumes").json()) == 5
+
+    updated = client.put(f"/resumes/{rid}", json={"applicant_name": "Pat Doe",
+                                                  "resume_text": "Staff engineer, 11y."}).json()
+    assert updated["resume_text"].endswith("11y.")
+
+    # blank fields are rejected; unknown ids 404
+    assert client.post("/resumes", json={"applicant_name": " ", "resume_text": "x"}).status_code == 422
+    assert client.put("/resumes/nope", json={"applicant_name": "a", "resume_text": "b"}).status_code == 404
+    assert client.delete("/resumes/nope").status_code == 404
+
+    assert client.delete(f"/resumes/{rid}").json()["deleted"] is True
+    assert len(client.get("/resumes").json()) == 4
+
+
+def test_deleting_all_resumes_reseeds_samples(client):
+    first = client.get("/resumes").json()
+    assert len(first) == 4
+    for r in first:
+        client.delete(f"/resumes/{r['id']}")
+    # an empty table re-seeds the shipped samples on next read (spec: seed when empty)
+    assert len(client.get("/resumes").json()) == 4
+
+
+def test_runs_probe_the_db_resume_corpus(client):
+    # replace the seeded corpus with one custom resume, then run
+    for r in client.get("/resumes").json():
+        client.delete(f"/resumes/{r['id']}")
+    client.post("/resumes", json={"applicant_name": "Corpus Tester",
+                                  "resume_text": "Principal engineer; led platform; scaled services."})
+    assert len(client.get("/resumes").json()) == 1
+    # the ladder still holds regardless of corpus content (probes inject their own payloads)
+    body = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"}).json()
+    assert body["summary"]["vulnerabilities_found"] == 6
+
+
+def test_resume_pdf_extraction(client):
+    pdf = _make_pdf("Reliability Engineer at ExampleCorp")
+    ok = client.post("/resumes/extract", files={"file": ("cv.pdf", pdf, "application/pdf")})
+    assert ok.status_code == 200
+    assert "Reliability Engineer" in ok.json()["text"] and ok.json()["pages"] == 1
+    # a non-PDF or empty upload is a clean 422, never a 500
+    assert client.post("/resumes/extract",
+                       files={"file": ("x.pdf", b"not a pdf", "application/pdf")}).status_code == 422
+    assert client.post("/resumes/extract",
+                       files={"file": ("e.pdf", b"", "application/pdf")}).status_code == 422
+
+
+def test_resume_pdf_extract_text_is_capped(client):
+    # a PDF whose text layer is huge is rejected (decompression-bomb guard), not a 200/OOM
+    big = _make_pdf("xy " * 1_200_000)  # ~3.6 MB of extractable text, over the 2 MB cap
+    r = client.post("/resumes/extract", files={"file": ("big.pdf", big, "application/pdf")})
+    assert r.status_code == 422
+
+
+def test_resume_seeding_is_concurrency_safe(tmp_path):
+    import threading
+
+    from backend.service import AssessmentService
+
+    service = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    barrier = threading.Barrier(8)
+
+    def worker():
+        barrier.wait()  # all threads hit the empty DB at once to maximize the seed race
+        service.list_resumes()
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # exactly the 4 shipped samples — the seed lock prevented concurrent double-seeding
+    assert len(service.list_resumes()) == 4
 
 
 def test_reports_list_runs_and_findings(client):

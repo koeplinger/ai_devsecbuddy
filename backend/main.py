@@ -7,17 +7,20 @@ to this API. Run it with::
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import Settings, load_settings
 from .service import (
+    MAX_PDF_BYTES,
     AssessmentService,
     EngineNotAvailable,
     EngineNotConfigured,
     FindingNotFound,
+    PdfExtractError,
+    ResumeNotFound,
     RunNotFound,
     TileBusy,
     TileNotFound,
@@ -34,6 +37,11 @@ class RunRequest(BaseModel):
 
 class DeleteFindingsRequest(BaseModel):
     ids: list[str]
+
+
+class ResumeIn(BaseModel):
+    applicant_name: str
+    resume_text: str
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -157,6 +165,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Permanently delete the listed findings (hard delete). The frontend sends the
         ids of the findings currently shown after the user confirms in a modal."""
         return {"deleted": service.delete_findings(req.ids)}
+
+    # -- resumes: the sample corpus the app probes against ----------------------
+
+    def _clean_resume(req: ResumeIn) -> tuple[str, str]:
+        name, text = req.applicant_name.strip(), req.resume_text.strip()
+        if not name or not text:
+            raise HTTPException(status_code=422, detail="applicant_name and resume_text are required")
+        return name, text
+
+    @app.get("/resumes", tags=["resumes"])
+    def list_resumes() -> list[dict]:
+        return service.list_resumes()
+
+    @app.post("/resumes", tags=["resumes"], status_code=201)
+    def create_resume(req: ResumeIn) -> dict:
+        name, text = _clean_resume(req)
+        return service.create_resume(name, text)
+
+    @app.post("/resumes/extract", tags=["resumes"])
+    async def extract_resume_pdf(file: UploadFile = File(...)) -> dict:
+        """Extract plain text from an uploaded PDF (convenience for drafting a resume)."""
+        # Reject an oversized upload before buffering it (when the size is known).
+        if file.size is not None and file.size > MAX_PDF_BYTES:
+            raise HTTPException(status_code=413, detail="the PDF is too large.")
+        data = await file.read()
+        try:
+            return service.extract_pdf_text(data)
+        except PdfExtractError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @app.put("/resumes/{resume_id}", tags=["resumes"])
+    def update_resume(resume_id: str, req: ResumeIn) -> dict:
+        name, text = _clean_resume(req)
+        try:
+            return service.update_resume(resume_id, name, text)
+        except ResumeNotFound:
+            raise HTTPException(status_code=404, detail=f"Unknown resume {resume_id!r}")
+
+    @app.delete("/resumes/{resume_id}", tags=["resumes"])
+    def delete_resume(resume_id: str) -> dict:
+        try:
+            service.delete_resume(resume_id)
+        except ResumeNotFound:
+            raise HTTPException(status_code=404, detail=f"Unknown resume {resume_id!r}")
+        return {"deleted": True}
 
     return app
 

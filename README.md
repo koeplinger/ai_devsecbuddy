@@ -90,7 +90,7 @@ flowchart TB
     LIB --> DB
 ```
 
-- **`frontend/`** — Vite + React + TypeScript UI: tiles grid, run console, ledger viewer. Holds no security logic; talks only to the backend.
+- **`frontend/`** — Vite + React + TypeScript UI: tiles grid, run console, ledger viewer, and a resumes manager (CRUD the sample corpus the app probes against, incl. "extract from PDF"). Holds no security logic; talks only to the backend.
 - **`backend/`** — FastAPI service hosting the AI-application tiles **and** the DevSecBuddy run/report API. It *imports* `devsecbuddy`; it does not reimplement it.
 - **`devsecbuddy/`** — **the product.** A shared Python library implementing the three phases and the single shared contract injected as middleware/protocol across every tile. Transport- and storage-agnostic at its core (the `Ledger` abstracts SQLite).
 - **Pluggable engines** — an `AIEngine` interface with three adapters: **`MockEngine`** (deterministic, offline, intentionally flawed — the **default**), **`AnthropicEngine`** (Claude, via the Anthropic API), and **`VertexEngine`** (Gemini, via Google Cloud Vertex AI). See [docs/ai-engines.md](docs/ai-engines.md).

@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS findings (
     created_at          TEXT NOT NULL,
     UNIQUE (run_id, fingerprint)
 );
+CREATE TABLE IF NOT EXISTS resumes (
+    resume_id      TEXT PRIMARY KEY,
+    applicant_name TEXT NOT NULL,
+    resume_text    TEXT NOT NULL,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
 """
 
 _FILTERABLE = ("tile_id", "run_id", "category", "severity", "status", "owasp_ref", "vector_id")
@@ -280,6 +287,66 @@ class Ledger:
         self.conn.commit()
         return cur.rowcount
 
+    # -- resumes (the sample-resume corpus the app probes against) ---------------
+
+    def count_resumes(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM resumes").fetchone()[0]
+
+    def list_resumes(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM resumes ORDER BY updated_at DESC, applicant_name"
+        ).fetchall()
+        return [_row_to_resume(r) for r in rows]
+
+    def get_resume(self, resume_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM resumes WHERE resume_id = ?", (resume_id,)
+        ).fetchone()
+        return _row_to_resume(row) if row else None
+
+    def create_resume(self, applicant_name: str, resume_text: str) -> dict:
+        resume_id = "resume-" + uuid.uuid4().hex[:12]
+        ts = now_iso()
+        self.conn.execute(
+            "INSERT INTO resumes(resume_id, applicant_name, resume_text, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (resume_id, applicant_name, resume_text, ts, ts),
+        )
+        self.conn.commit()
+        return self.get_resume(resume_id)
+
+    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str) -> dict | None:
+        cur = self.conn.execute(
+            "UPDATE resumes SET applicant_name = ?, resume_text = ?, updated_at = ? "
+            "WHERE resume_id = ?",
+            (applicant_name, resume_text, now_iso(), resume_id),
+        )
+        self.conn.commit()
+        return self.get_resume(resume_id) if cur.rowcount else None
+
+    def delete_resume(self, resume_id: str) -> bool:
+        cur = self.conn.execute("DELETE FROM resumes WHERE resume_id = ?", (resume_id,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def seed_resumes(self, items: list[dict]) -> int:
+        """Insert seed resumes only if the table is empty; returns how many were added.
+
+        No-op while the table is non-empty, so it never fights a user's edits or partial
+        deletes. An *empty* table re-seeds the samples on next use (per the spec: seed
+        when empty), so the app always has a corpus to probe against."""
+        if self.count_resumes() > 0:
+            return 0
+        ts = now_iso()
+        for item in items:
+            self.conn.execute(
+                "INSERT INTO resumes(resume_id, applicant_name, resume_text, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("resume-" + uuid.uuid4().hex[:12], item["applicant_name"], item["resume_text"], ts, ts),
+            )
+        self.conn.commit()
+        return len(items)
+
     def list_runs(self, tile_id: str | None = None, limit: int = 100) -> list[dict]:
         sql, params = "SELECT * FROM runs", []
         if tile_id:
@@ -322,6 +389,16 @@ def _fingerprint(result: ProbeResult) -> str:
     else:
         signal = "match"
     return short_hash(result.tile_id, result.vector_id, signal, length=16)
+
+
+def _row_to_resume(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["resume_id"],
+        "applicant_name": row["applicant_name"],
+        "resume_text": row["resume_text"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
 
 
 def _row_to_finding(row: sqlite3.Row) -> Finding:

@@ -8,6 +8,7 @@ reimplements product logic (docs/architecture.md).
 """
 from __future__ import annotations
 
+import io
 import json
 import queue
 import threading
@@ -16,10 +17,21 @@ from typing import Iterator
 from devsecbuddy import Ledger, get_engine, load_vectors, run_assessment
 from devsecbuddy.demo import CLEAN_CORPUS, TILES
 from devsecbuddy.engines import AnthropicEngine, EngineNotConfigured, MockEngine, VertexEngine
-from devsecbuddy.models import Finding
+from devsecbuddy.models import AppRequest, Finding
 
 # Engines the backend can select between (docs/ai-engines.md).
 ENGINE_CLASSES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine}
+
+# Seed resumes for an empty ledger — the brief sample corpus the app ships with.
+_RESUME_SEED = [
+    {"applicant_name": r.fields["applicant_name"], "resume_text": r.fields["resume_text"]}
+    for r in CLEAN_CORPUS
+]
+# Reject implausibly large PDF uploads up front (defensive — a probe corpus is small).
+MAX_PDF_BYTES = 10 * 1024 * 1024
+# Cap *extracted* text too: a small compressed PDF can decompress to a huge text layer
+# (a "decompression bomb"); a resume is tiny, so 2 MB of text is already generous.
+_MAX_PDF_TEXT = 2 * 1024 * 1024
 
 
 class TileNotFound(KeyError):
@@ -44,6 +56,14 @@ class RunNotFound(KeyError):
 
 class FindingNotFound(KeyError):
     pass
+
+
+class ResumeNotFound(KeyError):
+    pass
+
+
+class PdfExtractError(ValueError):
+    """An uploaded PDF could not be read / yielded no extractable text -> 422."""
 
 
 class TileBusy(RuntimeError):
@@ -76,6 +96,8 @@ class AssessmentService:
         # Tiles with a streaming run in flight, guarding "one live run per tile".
         self._running: set[str] = set()
         self._running_lock = threading.Lock()
+        # Serialize resume seeding so concurrent first-access requests can't double-seed.
+        self._seed_lock = threading.Lock()
 
     # -- catalog ----------------------------------------------------------------
 
@@ -106,9 +128,10 @@ class AssessmentService:
 
         adapter = TILES[tile_id](chosen)
         vectors = load_vectors(enabled_only=True)
+        corpus = self._corpus()
         ledger = Ledger(self.db_path)
         try:
-            out = run_assessment(adapter, vectors, CLEAN_CORPUS,
+            out = run_assessment(adapter, vectors, corpus,
                                  ledger=ledger, engine_name=resolved)
         except NotImplementedError as exc:            # a designed-but-unwired cloud engine
             raise EngineNotAvailable(str(exc)) from exc
@@ -149,6 +172,11 @@ class AssessmentService:
             raise UnknownEngine(str(exc)) from exc     # client/config error -> 400
         _validate_model(chosen, model)                 # unknown model -> 400 (before streaming)
 
+        # Pin the corpus now (in the request thread, like run() does) so a concurrent
+        # resume edit/delete can't shift what this run probes mid-flight — and so a DB
+        # error here surfaces before the tile is reserved (no leak).
+        corpus = self._corpus()
+
         # Reserve the tile (one live run per tile). Released in the worker's finally,
         # which always runs once the thread starts — even if the client disconnects.
         with self._running_lock:
@@ -169,7 +197,7 @@ class AssessmentService:
                 ledger = Ledger(self.db_path)
                 adapter = TILES[tile_id](get_engine(resolved, model=model))
                 vectors = load_vectors(enabled_only=True)
-                out = run_assessment(adapter, vectors, CLEAN_CORPUS, ledger=ledger,
+                out = run_assessment(adapter, vectors, corpus, ledger=ledger,
                                      engine_name=resolved, on_event=events.put)
                 events.put({
                     "type": "result", "run_id": out["run_id"], "tile_id": tile_id,
@@ -238,6 +266,86 @@ class AssessmentService:
         """Permanently delete the given findings; returns how many were removed."""
         with Ledger(self.db_path) as ledger:
             return ledger.delete_ids(ids)
+
+    # -- resumes (the sample corpus the app probes against) ---------------------
+
+    def _seed(self, ledger: Ledger) -> None:
+        # The check-then-insert in seed_resumes isn't atomic across connections, so a
+        # process-wide lock serializes it — concurrent first-access requests (e.g.
+        # "Assess all tiles" on a fresh DB) can't each insert the samples. The deploy
+        # runs a single uvicorn process, so a process lock is sufficient.
+        with self._seed_lock:
+            ledger.seed_resumes(_RESUME_SEED)
+
+    def _corpus(self) -> list[AppRequest]:
+        """The clean resume corpus a run probes against: the user's DB resumes, seeded
+        from the shipped samples on first use. Falls back to the in-code samples if the
+        table was emptied, so a run never fails for lack of a corpus."""
+        with Ledger(self.db_path) as ledger:
+            self._seed(ledger)
+            resumes = ledger.list_resumes()
+        if not resumes:
+            return list(CLEAN_CORPUS)
+        return [
+            AppRequest(fields={"applicant_name": r["applicant_name"], "resume_text": r["resume_text"]})
+            for r in resumes
+        ]
+
+    def list_resumes(self) -> list[dict]:
+        with Ledger(self.db_path) as ledger:
+            self._seed(ledger)  # seed the shipped samples on first use
+            return ledger.list_resumes()
+
+    def create_resume(self, applicant_name: str, resume_text: str) -> dict:
+        with Ledger(self.db_path) as ledger:
+            return ledger.create_resume(applicant_name, resume_text)
+
+    def update_resume(self, resume_id: str, applicant_name: str, resume_text: str) -> dict:
+        with Ledger(self.db_path) as ledger:
+            updated = ledger.update_resume(resume_id, applicant_name, resume_text)
+        if updated is None:
+            raise ResumeNotFound(resume_id)
+        return updated
+
+    def delete_resume(self, resume_id: str) -> None:
+        with Ledger(self.db_path) as ledger:
+            if not ledger.delete_resume(resume_id):
+                raise ResumeNotFound(resume_id)
+
+    @staticmethod
+    def extract_pdf_text(data: bytes) -> dict:
+        """Extract plain text from an uploaded PDF (pypdf). Returns {text, pages, chars}.
+
+        Raises PdfExtractError (-> 422) for empty / oversized / unreadable PDFs, or a
+        PDF with no extractable text (e.g. a scan of images with no text layer)."""
+        if not data:
+            raise PdfExtractError("the uploaded file is empty.")
+        if len(data) > MAX_PDF_BYTES:
+            raise PdfExtractError(f"the PDF is too large (limit {MAX_PDF_BYTES // (1024 * 1024)} MB).")
+        try:
+            from pypdf import PdfReader
+        except ImportError as exc:  # dependency missing in this environment
+            raise PdfExtractError("PDF support is not installed on the server (pypdf).") from exc
+        try:
+            reader = PdfReader(io.BytesIO(data))
+            parts: list[str] = []
+            total = 0
+            for page in reader.pages:
+                piece = (page.extract_text() or "").strip()
+                if not piece:
+                    continue
+                parts.append(piece)
+                total += len(piece)
+                if total > _MAX_PDF_TEXT:  # decompression-bomb guard: bound the text layer
+                    raise PdfExtractError("the PDF's extracted text is too large.")
+        except PdfExtractError:
+            raise
+        except Exception as exc:  # malformed / encrypted / not actually a PDF
+            raise PdfExtractError(f"could not read the PDF ({exc}).") from exc
+        text = "\n\n".join(parts).strip()
+        if not text:
+            raise PdfExtractError("no extractable text found (the PDF may be scanned images).")
+        return {"text": text, "pages": len(reader.pages), "chars": len(text)}
 
     # -- serialization ----------------------------------------------------------
 
