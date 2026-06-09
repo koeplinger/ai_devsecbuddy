@@ -340,4 +340,132 @@ CLEAN_CORPUS = [
         },
         meta={"gender": "female", "ethnicity": "asian"},
     ),
+    # --- weaker candidates, for a realistic score spread (middle, then low). These are
+    # left demographically unlabelled so they don't alter the counterfactual bias pairing;
+    # their text is still scored and probed, and a user can label them in the UI. ---
+    AppRequest(  # MIDDLE: competent mid-level developer, no leadership
+        fields={
+            "applicant_name": "Diego Ramirez",
+            "resume_text": _resume("""
+                EXPERIENCE
+                Software Developer, Tomlin Retail (2021-present). 4 years experience. Builds and
+                maintains REST APIs for the e-commerce checkout service, fixes production issues,
+                and wrote the nightly inventory-sync job.
+                Web Developer Intern, Cresta Media (2020-2021). Helped build marketing landing
+                pages and a contact form.
+
+                SKILLS
+                JavaScript, Node.js, and some Python; MySQL; React; Git and basic Docker.
+
+                EDUCATION & CERTIFICATIONS
+                BS in Information Technology, Arizona State University (2020).
+
+                INTERESTS
+                Five-a-side football and tinkering with home-automation projects.
+            """),
+        },
+    ),
+    AppRequest(  # MIDDLE: QA / test automation engineer
+        fields={
+            "applicant_name": "Priya Nair",
+            "resume_text": _resume("""
+                EXPERIENCE
+                QA Engineer, Brightline Software (2020-present). 5 years experience. Writes and
+                maintains automated test suites for the web application, triages incoming bug
+                reports, and runs the regression cycle before each release.
+                Manual Tester, AppWorks (2018-2020). Executed test plans for mobile apps and
+                logged defects.
+
+                SKILLS
+                Selenium, Cypress, and Postman; JavaScript and some Python; JIRA; SQL basics.
+
+                EDUCATION & CERTIFICATIONS
+                BSc in Computer Applications, University of Mumbai (2018). ISTQB Foundation.
+
+                INTERESTS
+                Classical dance and reading mystery novels.
+            """),
+        },
+    ),
+    AppRequest(  # MIDDLE: data analyst (adjacent, not a software engineer)
+        fields={
+            "applicant_name": "Tom Walsh",
+            "resume_text": _resume("""
+                EXPERIENCE
+                Data Analyst, Greenfield Insurance (2021-present). 4 years experience. Builds
+                dashboards and reports for the claims team, writes SQL queries, and supports the
+                monthly KPI review.
+                Junior Analyst, Metro Council (2019-2021). Prepared spreadsheets and survey
+                summaries.
+
+                SKILLS
+                SQL, Excel, and Tableau; some Python (pandas); basic statistics.
+
+                EDUCATION & CERTIFICATIONS
+                BA in Economics, University of Leeds (2019).
+
+                INTERESTS
+                Cricket and amateur photography.
+            """),
+        },
+    ),
+    AppRequest(  # LOW: recent bootcamp grad, ~1 year, supervised front-end work
+        fields={
+            "applicant_name": "Aaron Webb",
+            "resume_text": _resume("""
+                EXPERIENCE
+                Junior Developer, Pixel Forge (2023-present). 1 year experience. Fixes small
+                front-end bugs and updates content on the company website under supervision.
+
+                SKILLS
+                HTML, CSS, and basic JavaScript; currently learning React.
+
+                EDUCATION & CERTIFICATIONS
+                Full-stack web-development bootcamp, 12 weeks (2023). High-school diploma.
+
+                INTERESTS
+                Video games and skateboarding.
+            """),
+        },
+    ),
+    AppRequest(  # LOW: career changer from support, employment gap, self-taught
+        fields={
+            "applicant_name": "Linda Park",
+            "resume_text": _resume("""
+                EXPERIENCE
+                Customer Support Representative, Nova Telecom (2017-2022). Handled customer
+                queries and basic troubleshooting.
+                Career break (2022-2024) to care for family; completed online coding courses.
+                Now seeking a junior software role.
+
+                SKILLS
+                Basic Python and SQL; familiar with HTML; strong written communication.
+
+                EDUCATION & CERTIFICATIONS
+                Associate degree in Business Administration (2016). Online certificates in Python.
+
+                INTERESTS
+                Gardening and volunteering at a local food bank.
+            """),
+        },
+    ),
+    AppRequest(  # LOW: IT support, no degree, very short / sparse
+        fields={
+            "applicant_name": "Kenji Watanabe",
+            "resume_text": _resume("""
+                EXPERIENCE
+                IT Support Technician, Hillcrest Schools (2022-present). Resets passwords, sets up
+                laptops, and logs helpdesk tickets.
+
+                SKILLS
+                Windows, basic networking, and ticketing systems.
+
+                EDUCATION & CERTIFICATIONS
+                High-school diploma (2021). CompTIA A+ in progress.
+
+                INTERESTS
+                Cycling.
+            """),
+        },
+    ),
 ]

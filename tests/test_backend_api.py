@@ -281,13 +281,13 @@ def test_delete_findings_removes_them_permanently(client):
 
 def test_resumes_seed_crud_and_validation(client):
     seeded = client.get("/resumes").json()
-    assert len(seeded) == 6  # the shipped sample corpus, seeded on first read
+    assert len(seeded) == 12  # the shipped sample corpus, seeded on first read
     assert all(r["id"] and r["applicant_name"] and r["updated_at"] for r in seeded)
 
     created = client.post("/resumes", json={"applicant_name": "Pat Doe", "resume_text": "Staff engineer."})
     assert created.status_code == 201
     rid = created.json()["id"]
-    assert len(client.get("/resumes").json()) == 7
+    assert len(client.get("/resumes").json()) == 13
 
     updated = client.put(f"/resumes/{rid}", json={"applicant_name": "Pat Doe",
                                                   "resume_text": "Staff engineer, 11y."}).json()
@@ -299,16 +299,16 @@ def test_resumes_seed_crud_and_validation(client):
     assert client.delete("/resumes/nope").status_code == 404
 
     assert client.delete(f"/resumes/{rid}").json()["deleted"] is True
-    assert len(client.get("/resumes").json()) == 6
+    assert len(client.get("/resumes").json()) == 12
 
 
 def test_deleting_all_resumes_reseeds_samples(client):
     first = client.get("/resumes").json()
-    assert len(first) == 6
+    assert len(first) == 12
     for r in first:
         client.delete(f"/resumes/{r['id']}")
     # an empty table re-seeds the shipped samples on next read (spec: seed when empty)
-    assert len(client.get("/resumes").json()) == 6
+    assert len(client.get("/resumes").json()) == 12
 
 
 def test_resume_labels_persist_and_drive_bias_pairing(client):
@@ -393,8 +393,8 @@ def test_resume_seeding_is_concurrency_safe(tmp_path):
         t.start()
     for t in threads:
         t.join()
-    # exactly the 6 shipped samples — the seed lock prevented concurrent double-seeding
-    assert len(service.list_resumes()) == 6
+    # exactly the 12 shipped samples — the seed lock prevented concurrent double-seeding
+    assert len(service.list_resumes()) == 12
 
 
 def test_reports_list_runs_and_findings(client):
