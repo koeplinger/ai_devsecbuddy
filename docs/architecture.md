@@ -360,6 +360,14 @@ is observed at the next progress event (`on_event` raises `RunCancelled`), so la
 to whichever applies. A force-stop cannot interrupt a single blocking engine call mid-flight,
 so the cloud engines also set a per-request HTTP timeout to bound a hung call.
 
+**Rate-limit wait-and-retry.** A real engine can return a rate-limit / quota error
+(HTTP 429 / `RESOURCE_EXHAUSTED`) under load. Each scorer's engine is wrapped in
+`RateLimitRetryEngine`, which on such an error **pauses and retries** instead of failing —
+escalating the wait by 30 s on each hit *within that run*: 30 s, then 60 s, then 90 s, …
+(a fresh counter per scorer, capped so it eventually gives up rather than waiting forever).
+The pause streams a `rate_limited` event (the run card shows a live retry countdown) and is
+interruptible by a force-stop, since the wait polls the same `on_event` hook.
+
 For the same probe suite, the four tiles produce *different* profiles — that
 contrast is the whole demonstration (see [tiles.md](tiles.md)):
 

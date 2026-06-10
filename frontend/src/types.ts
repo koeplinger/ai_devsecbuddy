@@ -145,6 +145,7 @@ export type RunEvent =
   | { type: 'learning'; index: number; total: number; name: string }
   | { type: 'name_swap'; axis: string; from: string; to: string; interest?: string }
   | { type: 'probe_target'; vector_id: string; name: string }
+  | { type: 'rate_limited'; attempt: number; wait_s: number; remaining_s: number; engine?: string }
   | {
       type: 'probe_done';
       index: number;
@@ -181,6 +182,8 @@ export interface TileRun {
   jobId?: string;
   // 1-based position while queued (1 = next to run)
   queuePosition?: number;
+  // set while the scorer is paused on a rate-limit (429), with a live retry countdown
+  rateLimit?: { attempt: number; remaining_s: number; wait_s: number };
   // human-readable progress log lines, appended as events arrive
   lines: string[];
   // the in-flight probe, for a live "x/total running…" indicator

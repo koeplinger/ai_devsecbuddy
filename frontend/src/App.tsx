@@ -13,6 +13,8 @@ type Tab = 'runs' | 'ledger' | 'resumes';
 // progress line. Pure — the backend (devsecbuddy/runner.py) is the source of truth
 // for ordering; this only formats what arrives.
 function applyEvent(run: TileRun, ev: RunEvent): TileRun {
+  // Any non-rate-limit event means the scorer resumed — clear the rate-limit banner.
+  if (ev.type !== 'rate_limited' && run.rateLimit) run = { ...run, rateLimit: undefined };
   const withLine = (line: string, patch: Partial<TileRun> = {}): TileRun => ({
     ...run,
     ...patch,
@@ -61,6 +63,15 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
     }
     case 'probe_target':
       return withLine(`       · testing resume: ${ev.name}`);
+    case 'rate_limited': {
+      const rl = { attempt: ev.attempt, remaining_s: ev.remaining_s, wait_s: ev.wait_s };
+      // log a line only when a new pause starts; later ticks just refresh the countdown
+      if (run.rateLimit?.attempt === ev.attempt) return { ...run, rateLimit: rl };
+      return withLine(
+        `   ⏳ rate limited — pausing ${ev.wait_s}s before retry (attempt ${ev.attempt})…`,
+        { rateLimit: rl },
+      );
+    }
     case 'probe_done':
       return withLine(
         `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,

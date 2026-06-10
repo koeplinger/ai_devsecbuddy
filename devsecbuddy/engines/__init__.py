@@ -11,6 +11,7 @@ from typing import Protocol, runtime_checkable
 from ..models import EngineParams, EngineResponse
 from .cloud import AnthropicEngine, EngineNotConfigured, VertexEngine
 from .mock import MockEngine
+from .retry import RateLimitRetryEngine, is_rate_limit_error
 
 
 @runtime_checkable
@@ -41,4 +42,4 @@ def get_engine(name: str | None = None, **kwargs) -> AIEngine:
 
 
 __all__ = ["AIEngine", "MockEngine", "AnthropicEngine", "VertexEngine", "get_engine",
-           "EngineNotConfigured"]
+           "EngineNotConfigured", "RateLimitRetryEngine", "is_rate_limit_error"]

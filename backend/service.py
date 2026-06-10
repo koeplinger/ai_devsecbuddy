@@ -18,7 +18,9 @@ from typing import Iterator
 
 from devsecbuddy import Ledger, RunCancelled, get_engine, load_vectors, run_assessment
 from devsecbuddy.demo import CLEAN_CORPUS, TILES
-from devsecbuddy.engines import AnthropicEngine, EngineNotConfigured, MockEngine, VertexEngine
+from devsecbuddy.engines import (
+    AnthropicEngine, EngineNotConfigured, MockEngine, RateLimitRetryEngine, VertexEngine,
+)
 from devsecbuddy.models import AppRequest, Finding
 
 # Engines the backend can select between (docs/ai-engines.md).
@@ -159,7 +161,8 @@ class AssessmentService:
             raise UnknownEngine(str(exc)) from exc     # client/config error -> 400
         _validate_model(chosen, model)                 # unknown model -> 400
 
-        adapter = TILES[tile_id](chosen)
+        # Same rate-limit pause-and-retry as the streaming path (no live progress here).
+        adapter = TILES[tile_id](RateLimitRetryEngine(chosen))
         vectors = load_vectors(enabled_only=True)
         corpus = self._corpus()
         ledger = Ledger(self.db_path)
@@ -313,7 +316,10 @@ class AssessmentService:
         ledger = None
         try:
             ledger = Ledger(self.db_path)
-            adapter = TILES[job.tile_id](get_engine(job.engine, model=job.model))
+            # Wrap the engine so a rate-limit (429) pauses-and-retries this scorer with an
+            # escalating wait; `emit` shows the wait and makes the force-stop interrupt it.
+            engine = RateLimitRetryEngine(get_engine(job.engine, model=job.model), on_wait=emit)
+            adapter = TILES[job.tile_id](engine)
             vectors = load_vectors(enabled_only=True)
             out = run_assessment(adapter, vectors, job.corpus, ledger=ledger,
                                  engine_name=job.engine, on_event=emit)

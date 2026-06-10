@@ -139,6 +139,13 @@ function RunCard({
         </p>
       )}
 
+      {run.status === 'running' && run.rateLimit && (
+        <p className="run-current rate-limited" role="status">
+          ⏳ Rate limited — retrying in {run.rateLimit.remaining_s}s (attempt{' '}
+          {run.rateLimit.attempt})…
+        </p>
+      )}
+
       {/* Live log for every non-completed state; the completed card collapses it behind
           the Show/Hide details toggle in the summary row below. */}
       {run.status !== 'done' && logBox}
