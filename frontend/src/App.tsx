@@ -428,8 +428,8 @@ export function App() {
       )}
 
       <footer className="footer">
-        Findings persist to the SQLite vulnerability ledger. The same probe suite runs against every
-        tile — differences isolate to guardrail strength.
+        Findings persist to the vulnerability ledger. The same probe suite runs against every tile,
+        to measure guardrail strength.
       </footer>
     </div>
   );

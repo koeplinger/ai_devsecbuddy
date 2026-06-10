@@ -609,8 +609,7 @@ h4 {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
-  /* a formal, report-style serif distinct from the app's UI sans */
-  font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
+  /* body text matches the app's UI font (the tagline); headings/labels set their own */
   color: var(--ink);
 }
 .exec-section {

@@ -147,14 +147,14 @@ class _ResumeTile:
 class UnguardedResumeScorer(_ResumeTile):
     tile_id = "tile-unguarded"
     name = "Unguarded Resume Scorer"
-    description = "Concatenates header instructions and resume straight to the engine. No guardrails."
+    description = "Sends the resume straight to the AI for scoring. No guardrails."
     guardrails = []
 
 
 class InputSanitizedResumeScorer(_ResumeTile):
     tile_id = "tile-input-sanitized"
     name = "Input-Sanitized Resume Scorer"
-    description = "Delimits untrusted resume content, strips meta-instructions, adds a system-prompt guard."
+    description = "Guard rails exist for untrusted resume content, system-/meta-instruction injection."
     guardrails = ["input_sanitization", "untrusted_data_delimiting", "system_prompt_guard"]
     sanitize_input = True
 
@@ -162,7 +162,7 @@ class InputSanitizedResumeScorer(_ResumeTile):
 class FairnessAwareResumeScorer(_ResumeTile):
     tile_id = "tile-fairness-aware"
     name = "Fairness-Aware Resume Scorer"
-    description = "Neutralizes the applicant name and scores on job-relevant features. No injection hardening."
+    description = "Scores only on job-relevant features."
     guardrails = ["name_neutralization", "job_relevance_rubric"]
     neutralize_name = True
     job_relevance = True
@@ -171,7 +171,7 @@ class FairnessAwareResumeScorer(_ResumeTile):
 class HardenedResumeScorer(_ResumeTile):
     tile_id = "tile-hardened"
     name = "Hardened Resume Scorer"
-    description = "Input sanitization + name neutralization + output validation + system-prompt isolation."
+    description = "Properly guarded AI: Input sanitization + name neutralization + output validation + system-prompt isolation."
     guardrails = [
         "input_sanitization", "untrusted_data_delimiting", "system_prompt_guard",
         "name_neutralization", "job_relevance_rubric", "output_validation", "system_prompt_isolation",

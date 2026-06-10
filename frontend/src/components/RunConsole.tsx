@@ -27,10 +27,7 @@ export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
       </div>
 
       {runs.length === 0 ? (
-        <p className="empty">
-          Pick a tile above and run an assessment to see live progress here. You can queue several
-          tiles at once — they run one at a time, each with its own panel.
-        </p>
+        <p className="empty">(start assessment above)</p>
       ) : (
         <div className="run-cards">
           {runs.map((run) => (

@@ -28,7 +28,7 @@ export function TilesGrid({
   return (
     <section className="panel">
       <div className="panel-head">
-        <h2>AI application tiles</h2>
+        <h2>AI applications</h2>
         <div className="engine-controls">
           <label className="engine-select">
             Engine
@@ -83,9 +83,10 @@ export function TilesGrid({
         </div>
       </div>
       <p className="hint">
-        The same probe suite runs against every tile; differences in findings isolate to
-        guardrail strength — that is the shift-left payoff this demo shows. Launch several
-        tiles at once; each tile allows one live run, tracked in the run console below.
+        Four applications, one AI DevSecBuddy: These end-to-end functioning applications have
+        a varying degree of sophistication when it comes to security. The same DevSecBuddy
+        library learns the expected content/response domain, and fine-tunes OWASP adversarial
+        tests to probe their resilience.
       </p>
       <div className="tiles">
         {tiles.map((tile) => {

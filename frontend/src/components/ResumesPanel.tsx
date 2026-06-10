@@ -216,9 +216,10 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
         </span>
       </div>
       <p className="hint">
-        These resumes are the clean corpus every assessment probes against — edit them to change what
-        the application is tested with. Probes append adversarial text and swap applicant names at run
-        time; your edits take effect on the next run.
+        These resumes are the corpus every assessment probes against — edit them to change what the
+        application is tested with. During active probing, the AI DevSecBuddy appends adversarial text,
+        swaps applicant names, and probes other domain-specific attack vectors as learned during the
+        passive phase at the beginning.
       </p>
 
       {loadError && (
