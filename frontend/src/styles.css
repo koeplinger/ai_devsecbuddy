@@ -425,6 +425,9 @@ h4 {
   color: var(--ink);
   max-height: 220px;
   overflow-y: auto;
+  /* Let JS own the scroll position: disable the browser's scroll-anchoring, which otherwise
+     fights the "follow the tail" auto-scroll when new lines are appended. */
+  overflow-anchor: none;
   white-space: pre-wrap;
   word-break: break-word;
 }
