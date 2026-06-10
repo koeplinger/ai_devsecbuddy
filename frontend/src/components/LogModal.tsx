@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 
 interface Props {
   title: string;
@@ -6,9 +6,29 @@ interface Props {
   onClose: () => void;
 }
 
-// A large-screen modal that shows a run's full progress log (the inline box is fixed-height
-// and scrolls; this is the "read it all" view). Closes on Escape or click outside.
+// How close to the bottom (px) still counts as "at the bottom" (rounding/subpixel slack).
+const STICK_SLACK = 8;
+
+// A large-screen modal that shows a run's full progress log. It "follows the tail": as new
+// lines are appended it keeps the view pinned to the bottom — but only while the user is
+// already at the bottom. If they've scrolled up to read, their position is left untouched.
 export function LogModal({ title, text, onClose }: Props) {
+  const preRef = useRef<HTMLPreElement | null>(null);
+  const stick = useRef(true); // start pinned (open showing the latest line)
+
+  const onScroll = () => {
+    const el = preRef.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK;
+  };
+
+  // On open and whenever the text grows, jump to the bottom IF we were sticking. Layout
+  // effect so the scroll lands before paint (no flicker). Appending text doesn't move
+  // scrollTop, so `stick` still reflects the user's pre-append position here.
+  useLayoutEffect(() => {
+    const el = preRef.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [text]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -32,7 +52,9 @@ export function LogModal({ title, text, onClose }: Props) {
             ✕
           </button>
         </div>
-        <pre className="run-log run-log-full">{text}</pre>
+        <pre className="run-log run-log-full" ref={preRef} onScroll={onScroll}>
+          {text}
+        </pre>
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>
             Close
