@@ -344,11 +344,21 @@ so a seven-vector run shows "Probe 3/7: `pi-favorable-score-001` running…" as 
 happens. The events are pure progress reporting — `run_assessment` returns exactly
 the same result whether or not anyone is listening.
 
-**One live run per tile.** The backend reserves a tile for the duration of a
-streaming run; a second start for the *same* tile gets `409`, but other tiles run
-concurrently. This lets the UI launch several tiles at once (each with its own
-console panel) while keeping a single tile's runs serialized, so its ledger profile
-is never the interleaving of two overlapping runs.
+**Single-threaded scorer (queued runs).** Every assessment runs **one at a time**: a
+single background worker drains a FIFO queue under a global lock (which the synchronous
+`POST /runs` also takes), so no two scorers ever execute concurrently. The UI may still
+kick off several tiles at once — each is *queued* (its stream's first event is
+`queued` with the job `id` + 1-based `position`) and runs when the worker reaches it,
+which keeps each ledger profile clean (never the interleaving of two overlapping runs)
+and bounds load on a real engine. A tile may have at most one job queued/running at a
+time (a second start for the same tile gets `409`).
+
+**Cancellation.** `POST /runs/{job_id}/cancel` either drops a still-queued job from the
+queue (*remove from queue*) or signals a running one to stop (*force-stop*). A force-stop
+is observed at the next progress event (`on_event` raises `RunCancelled`), so latency is
+~one probe; the run is recorded `cancelled` (not `failed`). The run card's `✕` overloads
+to whichever applies. A force-stop cannot interrupt a single blocking engine call mid-flight,
+so the cloud engines also set a per-request HTTP timeout to bound a hung call.
 
 For the same probe suite, the four tiles produce *different* profiles — that
 contrast is the whole demonstration (see [tiles.md](tiles.md)):

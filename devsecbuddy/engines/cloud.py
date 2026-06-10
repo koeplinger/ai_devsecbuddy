@@ -30,6 +30,12 @@ GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
 # Opus 4.7/4.8 reject sampling params (temperature/top_p/top_k) — drop them there.
 _NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
 
+# Per-request timeout for cloud calls. The backend runs assessments single-threaded, so a
+# call with no timeout would wedge the one worker (and the whole queue). 120 s is generous
+# for a short scoring prompt; bounds the worst case far below the SDKs' multi-minute default.
+_REQUEST_TIMEOUT_S = 120.0
+_REQUEST_TIMEOUT_MS = int(_REQUEST_TIMEOUT_S * 1000)
+
 # Selectable models per provider, low -> high tier. The UI offers these; any one is a
 # valid DEVSECBUDDY_*_MODEL default. Real models are non-deterministic and higher tiers
 # cost more — see each provider's pricing page (docs/setup/).
@@ -237,7 +243,7 @@ class AnthropicEngine:
             raise EngineNotConfigured(
                 "ANTHROPIC_API_KEY is not set — see docs/setup/anthropic-signup.md."
             )
-        self._client = anthropic.Anthropic(api_key=self.api_key)
+        self._client = anthropic.Anthropic(api_key=self.api_key, timeout=_REQUEST_TIMEOUT_S)
         return self._client
 
     def complete(self, system: str, prompt: str, params: EngineParams | None = None) -> EngineResponse:
@@ -304,7 +310,11 @@ class VertexEngine:
                 "DEVSECBUDDY_VERTEX_PROJECT and DEVSECBUDDY_VERTEX_REGION are required — "
                 "see docs/setup/google-vertex-signup.md."
             )
-        self._client = genai.Client(vertexai=True, project=self.project, location=self.region)
+        from google.genai import types
+        self._client = genai.Client(
+            vertexai=True, project=self.project, location=self.region,
+            http_options=types.HttpOptions(timeout=_REQUEST_TIMEOUT_MS),  # ms; bound a hung call
+        )
         return self._client
 
     def complete(self, system: str, prompt: str, params: EngineParams | None = None) -> EngineResponse:

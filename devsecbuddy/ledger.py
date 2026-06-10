@@ -251,6 +251,15 @@ class Ledger:
         )
         self.conn.commit()
 
+    def cancel_run(self, run_id: str) -> None:
+        """Mark a run as cancelled (force-stopped before it finished). Distinct from
+        'failed' so a deliberate stop is auditable as such, not an error."""
+        self.conn.execute(
+            "UPDATE runs SET finished_at = ?, status = 'cancelled' WHERE run_id = ?",
+            (now_iso(), run_id),
+        )
+        self.conn.commit()
+
     # -- read -------------------------------------------------------------------
 
     def query(self, **filters) -> list[Finding]:

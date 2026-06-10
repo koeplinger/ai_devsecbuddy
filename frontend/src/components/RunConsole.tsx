@@ -5,11 +5,13 @@ import { FindingsTable } from './FindingsTable';
 interface Props {
   runs: TileRun[];
   onOpenFinding: (id: string) => void;
-  onDismiss: (tileId: string) => void;
+  // The card's ✕ — App overloads it by run state (remove-from-queue / force-stop / dismiss).
+  onClose: (run: TileRun) => void;
 }
 
-export function RunConsole({ runs, onOpenFinding, onDismiss }: Props) {
+export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
   const runningCount = runs.filter((r) => r.status === 'running').length;
+  const queuedCount = runs.filter((r) => r.status === 'queued').length;
   return (
     <section className="panel">
       <div className="panel-head">
@@ -17,6 +19,7 @@ export function RunConsole({ runs, onOpenFinding, onDismiss }: Props) {
         {runs.length > 0 && (
           <span className="count">
             {runningCount > 0 ? `${runningCount} running · ` : ''}
+            {queuedCount > 0 ? `${queuedCount} queued · ` : ''}
             {runs.length} tile{runs.length === 1 ? '' : 's'}
           </span>
         )}
@@ -24,8 +27,8 @@ export function RunConsole({ runs, onOpenFinding, onDismiss }: Props) {
 
       {runs.length === 0 ? (
         <p className="empty">
-          Pick a tile above and run an assessment to see live progress here. You can run several
-          tiles at once — each gets its own panel.
+          Pick a tile above and run an assessment to see live progress here. You can queue several
+          tiles at once — they run one at a time, each with its own panel.
         </p>
       ) : (
         <div className="run-cards">
@@ -34,7 +37,7 @@ export function RunConsole({ runs, onOpenFinding, onDismiss }: Props) {
               key={run.tileId}
               run={run}
               onOpenFinding={onOpenFinding}
-              onDismiss={onDismiss}
+              onClose={onClose}
             />
           ))}
         </div>
@@ -46,17 +49,19 @@ export function RunConsole({ runs, onOpenFinding, onDismiss }: Props) {
 function RunCard({
   run,
   onOpenFinding,
-  onDismiss,
+  onClose,
 }: {
   run: TileRun;
   onOpenFinding: (id: string) => void;
-  onDismiss: (tileId: string) => void;
+  onClose: (run: TileRun) => void;
 }) {
   const logRef = useRef<HTMLPreElement | null>(null);
   // Details are shown live while a run is in flight; once it completes they collapse
   // behind a "Show details" pill in the summary row.
   const [expanded, setExpanded] = useState(false);
-  const showLog = run.status === 'running' || run.status === 'error' || expanded;
+  // Show the live log for every non-completed state; a completed card collapses it
+  // behind the Show/Hide details toggle.
+  const showLog = run.status === 'done' ? expanded : true;
 
   // Keep the log pinned to the newest line (live, and when re-expanded after a run).
   useEffect(() => {
@@ -65,7 +70,22 @@ function RunCard({
   }, [run.lines, showLog]);
 
   const statusLabel =
-    run.status === 'running' ? 'running' : run.status === 'done' ? 'complete' : 'error';
+    run.status === 'running'
+      ? 'running'
+      : run.status === 'queued'
+        ? 'queued'
+        : run.status === 'done'
+          ? 'complete'
+          : run.status === 'cancelled'
+            ? 'stopped'
+            : 'error';
+  // The ✕ overloads by run state.
+  const closeTitle =
+    run.status === 'queued'
+      ? 'Remove from queue'
+      : run.status === 'running'
+        ? 'Force stop'
+        : 'Dismiss';
   const logId = `run-log-${run.tileId}`;
   const logBox = (
     <pre
@@ -86,7 +106,9 @@ function RunCard({
       <header className="run-card-head">
         <div className="run-card-title">
           <span className={`run-status run-status-${run.status}`}>
-            {run.status === 'running' && <span className="spinner" aria-hidden="true" />}
+            {(run.status === 'running' || run.status === 'queued') && (
+              <span className="spinner" aria-hidden="true" />
+            )}
             {statusLabel}
           </span>
           <strong>{run.tileName}</strong>
@@ -95,13 +117,20 @@ function RunCard({
         </div>
         <button
           className="btn ghost run-dismiss"
-          onClick={() => onDismiss(run.tileId)}
-          title={run.status === 'running' ? 'Stop & dismiss' : 'Dismiss'}
-          aria-label={`Dismiss run for ${run.tileName}`}
+          onClick={() => onClose(run)}
+          title={closeTitle}
+          aria-label={`${closeTitle} — ${run.tileName}`}
         >
           ✕
         </button>
       </header>
+
+      {run.status === 'queued' && (
+        <p className="run-current">
+          Waiting — runs execute one at a time
+          {run.queuePosition && run.queuePosition > 1 ? ` · position ${run.queuePosition}` : ''}.
+        </p>
+      )}
 
       {run.status === 'running' && run.current && (
         <p className="run-current">
@@ -110,9 +139,9 @@ function RunCard({
         </p>
       )}
 
-      {/* Live log while running or on error; the completed card collapses it behind
+      {/* Live log for every non-completed state; the completed card collapses it behind
           the Show/Hide details toggle in the summary row below. */}
-      {(run.status === 'running' || run.status === 'error') && logBox}
+      {run.status !== 'done' && logBox}
 
       {run.status === 'error' && run.error && <div className="error">⚠ {run.error}</div>}
 

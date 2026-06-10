@@ -328,11 +328,17 @@ h4 {
 .run-card.run-running {
   border-left-color: var(--accent);
 }
+.run-card.run-queued {
+  border-left-color: #c99700;
+}
 .run-card.run-done {
   border-left-color: var(--ok);
 }
 .run-card.run-error {
   border-left-color: var(--danger);
+}
+.run-card.run-cancelled {
+  border-left-color: #9aa0a6;
 }
 .run-card-head {
   display: flex;
@@ -363,6 +369,10 @@ h4 {
   color: var(--accent);
   background: #eef0ff;
 }
+.run-status-queued {
+  color: #8a6d00;
+  background: #fbf3d6;
+}
 .run-status-done {
   color: var(--ok);
   background: #e9f8ef;
@@ -370,6 +380,10 @@ h4 {
 .run-status-error {
   color: var(--danger);
   background: #fdeaea;
+}
+.run-status-cancelled {
+  color: #5f6368;
+  background: #eef0f2;
 }
 .spinner {
   width: 9px;

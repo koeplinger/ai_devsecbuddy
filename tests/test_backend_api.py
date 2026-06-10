@@ -6,6 +6,7 @@ through HTTP, and the report endpoints serve the persisted findings.
 from __future__ import annotations
 
 import json
+import threading
 import time
 
 import pytest
@@ -14,6 +15,34 @@ from fastapi.testclient import TestClient
 from backend.config import Settings
 from backend.main import create_app
 from backend.service import AssessmentService, TileBusy
+
+
+def _gated_run_assessment(release: threading.Event, started: list):
+    """A drop-in for run_assessment that blocks until ``release`` (or until force-stopped
+    via on_event), recording the order tiles actually start. Lets concurrency tests be
+    deterministic without depending on a real run's timing."""
+    def fake(adapter, vectors, corpus, ledger=None, engine_name="mock", on_event=None):
+        started.append(adapter.tile_id)
+        if on_event:                          # the sync run() path passes no on_event
+            on_event({"type": "run_started", "run_id": "r", "tile_id": adapter.tile_id,
+                      "engine_name": engine_name, "total_probes": 1})
+        while not release.is_set():
+            if on_event:
+                on_event({"type": "tick"})    # raises RunCancelled if the job is force-stopped
+            time.sleep(0.005)
+        return {"run_id": "r-" + adapter.tile_id, "tile_id": adapter.tile_id, "findings": [],
+                "summary": {"probes_run": 0, "vulnerabilities_found": 0, "probes_passed": 0,
+                            "by_severity": {}, "by_category": {}}}
+    return fake
+
+
+def _wait(predicate, timeout=3.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
 
 
 @pytest.fixture
@@ -141,8 +170,10 @@ def test_run_unknown_engine_400(client):
 def test_run_stream_emits_progress_then_result(client):
     events = _stream_events(client, {"tile_id": "tile-unguarded", "engine_name": "mock"})
     types = [e["type"] for e in events]
-    # lifecycle markers are present and ordered: start -> probes -> terminal result
-    assert types[0] == "run_started"
+    # lifecycle markers are present and ordered: queued -> run_started -> probes -> result
+    assert types[0] == "queued"                      # serialized: first event carries the job id
+    assert events[0]["id"].startswith("job-") and events[0]["position"] >= 1
+    assert "run_started" in types
     assert types[-1] == "result"
     assert "probe_started" in types and "probe_done" in types
 
@@ -171,7 +202,8 @@ def test_run_stream_emits_terminal_error_for_unconfigured_engine(client):
     # An engine that fails mid-run (anthropic has no creds in this env) cannot change
     # the HTTP status once streaming has begun, so it arrives as a terminal error event.
     events = _stream_events(client, {"tile_id": "tile-unguarded", "engine_name": "anthropic"})
-    assert events[0]["type"] == "run_started"        # the run did start streaming
+    assert events[0]["type"] == "queued"             # enqueued, then the run started streaming
+    assert any(e["type"] == "run_started" for e in events)
     assert events[-1]["type"] == "error"
     assert events[-1]["kind"] == "not_configured"
     assert events[-1]["message"]
@@ -196,18 +228,98 @@ def test_run_stream_unknown_tile_404_and_engine_400(client):
     )
 
 
-def test_run_stream_one_live_run_per_tile(tmp_path):
-    # The 409 guard is a service invariant; exercise it directly so it's deterministic
-    # (the mock run is too fast to collide over HTTP). A reserved tile rejects a second
-    # start; a different tile is unaffected.
+def test_run_stream_one_job_per_tile(tmp_path):
+    # A tile that already has a job queued or running rejects a second start (409). A
+    # different tile is accepted (it queues behind the first).
     service = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
-    service._running.add("tile-unguarded")
+    with service._cv:
+        service._tiles_in_flight.add("tile-unguarded")  # pretend a job is in flight
     with pytest.raises(TileBusy):
         service.run_stream("tile-unguarded", "mock")
-    # other tiles are independent
+    # a different tile is accepted; drain it so the worker finishes and releases the tile
     other = service.run_stream("tile-hardened", "mock")
-    list(other)  # drain so the worker finishes and releases the tile
+    list(other)
     assert "tile-hardened" not in service.running_tiles()
+
+
+def test_runs_are_serialized_one_at_a_time(tmp_path, monkeypatch):
+    # Kick off two tiles at once: only ONE scorer runs; the other waits in the queue, and
+    # runs only after the first finishes.
+    release, started = threading.Event(), []
+    monkeypatch.setattr("backend.service.run_assessment", _gated_run_assessment(release, started))
+    svc = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    ga = svc.run_stream("tile-unguarded", "mock")  # FIFO: this one runs first
+    gb = svc.run_stream("tile-hardened", "mock")   # this one queues
+    assert _wait(lambda: started == ["tile-unguarded"])
+    time.sleep(0.05)
+    assert started == ["tile-unguarded"]           # the second has NOT started
+    snap = svc.queue_snapshot()
+    assert len(snap["pending"]) == 1 and set(snap["in_flight"]) == {"tile-unguarded", "tile-hardened"}
+
+    release.set()                                  # let the first finish -> the second runs
+    assert _wait(lambda: started == ["tile-unguarded", "tile-hardened"])
+    list(ga); list(gb)                             # drain so worker threads wind down
+
+
+def test_cancel_removes_a_queued_run(tmp_path, monkeypatch):
+    release, started = threading.Event(), []
+    monkeypatch.setattr("backend.service.run_assessment", _gated_run_assessment(release, started))
+    svc = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    svc.run_stream("tile-unguarded", "mock")       # runs + blocks
+    gb = svc.run_stream("tile-hardened", "mock")   # queued
+    assert _wait(lambda: started == ["tile-unguarded"])
+
+    job_b = svc.queue_snapshot()["pending"][0]
+    assert svc.cancel_run(job_b)["state"] == "removed_from_queue"
+    assert svc.queue_snapshot()["pending"] == [] and "tile-hardened" not in svc.running_tiles()
+    evs = [json.loads(x) for x in gb]              # its stream ends with a 'cancelled' event
+    assert evs[-1]["type"] == "cancelled" and evs[-1]["reason"] == "removed_from_queue"
+    release.set()
+
+
+def test_force_stop_a_running_run(tmp_path, monkeypatch):
+    release, started = threading.Event(), []
+    monkeypatch.setattr("backend.service.run_assessment", _gated_run_assessment(release, started))
+    svc = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    ga = svc.run_stream("tile-unguarded", "mock")
+    assert _wait(lambda: started == ["tile-unguarded"])
+
+    with svc._cv:
+        job_a = next(iter(svc._jobs))
+    assert svc.cancel_run(job_a)["state"] == "stopping"
+    evs = [json.loads(x) for x in ga]              # the run stops; stream ends with 'cancelled'
+    assert evs[-1]["type"] == "cancelled" and evs[-1]["reason"] == "force_stopped"
+    assert _wait(lambda: svc.running_tiles() == [])  # tile released
+
+
+def test_cancel_unknown_job_is_404(client):
+    assert client.post("/runs/nope-123/cancel").status_code == 404
+
+
+def test_sync_run_serializes_with_streaming_worker(tmp_path, monkeypatch):
+    # The synchronous run() (POST /runs) shares _run_lock with the streaming worker, so it
+    # waits while a streaming run is executing — one scorer at a time across BOTH paths.
+    release, started = threading.Event(), []
+    monkeypatch.setattr("backend.service.run_assessment", _gated_run_assessment(release, started))
+    svc = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    svc.run_stream("tile-unguarded", "mock")       # worker grabs _run_lock and blocks
+    assert _wait(lambda: started == ["tile-unguarded"])
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (svc.run("tile-hardened", "mock"), done.set()), daemon=True).start()
+    time.sleep(0.1)
+    assert started == ["tile-unguarded"] and not done.is_set()  # sync run() blocked on _run_lock
+    release.set()                                  # release both
+    assert _wait(lambda: done.is_set()) and "tile-hardened" in started
+
+
+def test_close_retires_the_drain_worker(tmp_path):
+    svc = AssessmentService(str(tmp_path / "ledger.db"), default_engine="mock")
+    list(svc.run_stream("tile-unguarded", "mock"))  # start + drain a run -> worker is alive/idle
+    worker = svc._worker
+    assert worker is not None and worker.is_alive()
+    svc.close()
+    assert _wait(lambda: not worker.is_alive())     # the idle worker exits cleanly
 
 
 def test_run_stream_releases_tile_on_early_close(tmp_path):

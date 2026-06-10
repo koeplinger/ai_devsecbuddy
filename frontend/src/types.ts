@@ -123,6 +123,14 @@ export interface FindingFilters {
 // One event per line; the backend emits these as run_assessment progresses
 // (devsecbuddy/runner.py + prober.py). The frontend renders them live, per tile.
 export type RunEvent =
+  | {
+      type: 'queued';
+      id: string;
+      position: number;
+      tile_id?: string;
+      engine_name?: string;
+      model?: string;
+    }
   | { type: 'run_started'; run_id: string; tile_id: string; engine_name: string; total_probes: number }
   | { type: 'phase'; phase: 'baseline' | 'probing' | 'reporting' }
   | { type: 'baseline_done'; sample_count: number }
@@ -155,7 +163,8 @@ export type RunEvent =
       summary: RunSummary;
       findings: Finding[];
     }
-  | { type: 'error'; kind?: string; message: string };
+  | { type: 'error'; kind?: string; message: string }
+  | { type: 'cancelled'; id?: string; reason: 'removed_from_queue' | 'force_stopped' };
 
 // Per-tile run state the UI keeps for the run console (one entry per tile that
 // has been run this session). Multiple tiles can be 'running' at once.
@@ -164,8 +173,14 @@ export interface TileRun {
   tileName: string;
   engine: string;
   model: string;
-  status: 'running' | 'done' | 'error';
+  // queued: waiting its turn (runs are serialized); running: executing; cancelled:
+  // removed from queue or force-stopped.
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
   startedAt: number;
+  // backend job id (from the 'queued' event) — used to cancel / force-stop this run
+  jobId?: string;
+  // 1-based position while queued (1 = next to run)
+  queuePosition?: number;
   // human-readable progress log lines, appended as events arrive
   lines: string[];
   // the in-flight probe, for a live "x/total running…" indicator

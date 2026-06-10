@@ -260,6 +260,23 @@ def test_findings_dedupe_within_run(vectors, tmp_path):
         ledger.close()
 
 
+def test_run_assessment_cancellation_marks_run_cancelled(vectors, tmp_path):
+    # A force-stop is modelled as on_event raising RunCancelled; run_assessment records the
+    # run as 'cancelled' (not 'failed') and re-raises.
+    from devsecbuddy import RunCancelled
+
+    ledger = Ledger(str(tmp_path / "ledger.db"))
+    def on_event(ev):
+        if ev.get("type") == "probe_started":      # stop once probing has begun
+            raise RunCancelled()
+    with pytest.raises(RunCancelled):
+        run_assessment(TILES["tile-unguarded"](get_engine("mock")), vectors, CLEAN_CORPUS,
+                       ledger=ledger, engine_name="mock", on_event=on_event)
+    runs = ledger.list_runs(tile_id="tile-unguarded")
+    ledger.close()
+    assert runs and runs[0]["status"] == "cancelled"
+
+
 def test_runs_are_reproducible(vectors, tmp_path):
     # The mock engine is deterministic; with the same RNG seed the random sampling (which
     # resumes / which swap names) is too, so a re-seeded run reproduces exactly.

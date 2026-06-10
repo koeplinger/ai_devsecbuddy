@@ -7,6 +7,8 @@ to this API. Run it with::
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -21,6 +23,7 @@ from .service import (
     FindingNotFound,
     PdfExtractError,
     ResumeNotFound,
+    RunNotActive,
     RunNotFound,
     TileBusy,
     TileNotFound,
@@ -52,10 +55,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     service = AssessmentService(settings.db_path, default_engine=settings.engine)
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        service.close()       # retire the single drain worker on shutdown
+
     app = FastAPI(
         title="AI DevSecBuddy API",
         version="0.1.0",
         description="Run/report API for automated adversarial AI-security testing (roadmap M2).",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -107,12 +116,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/runs/stream", tags=["runs"])
     def create_run_stream(req: RunRequest) -> StreamingResponse:
-        """Run an assessment and stream live progress as NDJSON.
+        """Enqueue an assessment and stream live progress as NDJSON.
 
-        One live run per tile: a second request for a tile already running gets 409.
-        Each line is a JSON event (``run_started``, ``phase``, ``probe_started`` /
-        ``probe_done``, then a terminal ``result`` or ``error``). The frontend's
-        per-tile run console renders these as they arrive.
+        Runs are serialized: only one scorer runs at a time, so a second request is
+        queued behind the first (and a tile that already has a job queued/running gets
+        409). The first line is a ``queued`` event carrying the job ``id`` (used to
+        cancel) and queue ``position``; then ``run_started`` … and a terminal ``result``,
+        ``error``, or ``cancelled``. The frontend renders these per tile.
         """
         try:
             lines = service.run_stream(req.tile_id, req.engine_name, req.model)
@@ -128,6 +138,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Defeat proxy/browser buffering so events arrive incrementally.
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/runs/{job_id}/cancel", tags=["runs"])
+    def cancel_run(job_id: str) -> dict:
+        """Cancel a streaming run by its job id: remove it from the queue if it hasn't
+        started, or force-stop it if it's running. The run's own NDJSON stream then ends
+        with a terminal ``cancelled`` event. 404 if the id isn't queued or running."""
+        try:
+            return service.cancel_run(job_id)
+        except RunNotActive:
+            raise HTTPException(status_code=404, detail=f"No queued or running job {job_id!r}")
 
     @app.get("/runs", tags=["runs"])
     def list_runs(tile_id: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[dict]:

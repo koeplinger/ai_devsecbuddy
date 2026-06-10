@@ -30,7 +30,7 @@ from .models import (
 )
 from .prober import AdversarialProber
 from .profiler import BaselineProfiler
-from .runner import run_assessment
+from .runner import RunCancelled, run_assessment
 
 __version__ = "0.1.0"
 
@@ -47,7 +47,7 @@ __all__ = [
     # phases
     "BaselineProfiler", "AdversarialProber", "Ledger",
     # helpers
-    "load_vectors", "run_assessment", "fairness_metrics", "DEFAULT_SELECTION_THRESHOLD",
+    "load_vectors", "run_assessment", "RunCancelled", "fairness_metrics", "DEFAULT_SELECTION_THRESHOLD",
     "DEFAULT_VECTORS_DIR", "DEFAULT_DB_PATH",
     "__version__",
 ]

@@ -19,8 +19,26 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
     lines: [...run.lines, line],
   });
   switch (ev.type) {
+    case 'queued': {
+      // Ignore a stale position update that races in after the run already started/ended
+      // (the first 'queued' arrives while status is still 'queued').
+      if (run.status !== 'queued') return run;
+      const patch = {
+        status: 'queued' as const,
+        jobId: ev.id,
+        queuePosition: ev.position,
+      };
+      // Append a line only the first time (position updates just patch, no log spam).
+      if (run.jobId) return { ...run, ...patch };
+      return withLine(
+        ev.position > 1 ? `⏳ queued · position ${ev.position}…` : '⏳ queued — starting soon…',
+        patch,
+      );
+    }
     case 'run_started':
       return withLine(`▶ Run started — ${ev.total_probes} probes · engine ${ev.engine_name}`, {
+        status: 'running',
+        queuePosition: undefined,
         totalProbes: ev.total_probes,
       });
     case 'phase':
@@ -64,6 +82,11 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       );
     case 'error':
       return withLine(`⚠ ${ev.message}`, { status: 'error', current: undefined, error: ev.message });
+    case 'cancelled':
+      return withLine(
+        ev.reason === 'removed_from_queue' ? '✕ removed from queue' : '✕ stopped',
+        { status: 'cancelled', current: undefined, queuePosition: undefined },
+      );
     default:
       return run;
   }
@@ -80,13 +103,19 @@ export function App() {
   const [selectedEngine, setSelectedEngine] = useState('mock');
   const [selectedModel, setSelectedModel] = useState('');
 
-  // One run per tile, keyed by tile_id; multiple may be 'running' at once.
+  // One run per tile, keyed by tile_id. Runs are serialized server-side.
   const [runs, setRuns] = useState<Record<string, TileRun>>({});
   const aborters = useRef<Record<string, AbortController>>({});
   // Synchronous "is this tile running" guard — updated imperatively so a rapid
   // double-click can't slip past it on a stale `runs` snapshot (the button's
   // disabled state still re-renders, but this closes the race window).
   const runningRef = useRef<Set<string>>(new Set());
+  // Tiles whose ✕ was clicked while still queued, BEFORE the backend job id arrived. We
+  // cancel the moment the 'queued' event supplies the id, so a job can never be enqueued
+  // server-side with the client having discarded its only handle to cancel it.
+  const pendingCancel = useRef<Set<string>>(new Set());
+  // Live mirror of `runs` for the unmount cleanup (so we can cancel in-flight jobs).
+  const runsRef = useRef<Record<string, TileRun>>({});
 
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
@@ -115,10 +144,20 @@ export function App() {
     };
   }, []);
 
-  // Abort any in-flight run streams on unmount.
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
+  // On unmount: cancel any still-queued/running jobs on the server (aborting the fetch
+  // alone does NOT stop the decoupled worker), then tear down the streams.
   useEffect(() => {
     const controllers = aborters.current;
     return () => {
+      Object.values(runsRef.current).forEach((r) => {
+        if ((r.status === 'queued' || r.status === 'running') && r.jobId) {
+          api.cancelRun(r.jobId).catch(() => {});
+        }
+      });
       Object.values(controllers).forEach((c) => c.abort());
     };
   }, []);
@@ -159,7 +198,9 @@ export function App() {
           tileName: tile?.name ?? tileId,
           engine,
           model,
-          status: 'running',
+          // Runs are serialized server-side; a run starts queued and flips to running
+          // when the single worker reaches it (the 'run_started' event).
+          status: 'queued',
           startedAt: Date.now(),
           lines: [`connecting to ${engine}${model ? ` · ${model}` : ''}…`],
         },
@@ -176,6 +217,17 @@ export function App() {
           (ev) => {
             update((run) => applyEvent(run, ev));
             if (ev.type === 'result') setLedgerRefreshKey((k) => k + 1);
+            // ✕ was clicked before the job id arrived — cancel now that we have it, then drop the card.
+            if (ev.type === 'queued' && pendingCancel.current.has(tileId)) {
+              pendingCancel.current.delete(tileId);
+              api.cancelRun(ev.id).catch(() => {});
+              controller.abort();
+              setRuns((prev) => {
+                const next = { ...prev };
+                delete next[tileId];
+                return next;
+              });
+            }
           },
           controller.signal,
         )
@@ -198,7 +250,9 @@ export function App() {
     [selectedEngine, selectedModel, engines, tiles],
   );
 
-  const onDismissRun = useCallback((tileId: string) => {
+  // Remove a card and abort its (now-defunct) stream. Does NOT stop the backend job —
+  // callers that need that call api.cancelRun first (the worker is decoupled from the stream).
+  const dismissCard = useCallback((tileId: string) => {
     runningRef.current.delete(tileId);
     aborters.current[tileId]?.abort();
     delete aborters.current[tileId];
@@ -209,9 +263,46 @@ export function App() {
     });
   }, []);
 
+  // The run card's ✕ overloads by run state:
+  //  - queued  → remove from the queue (cancel on the server) + drop the card. If the job
+  //              id hasn't arrived yet, remember the intent and cancel the moment it does.
+  //  - running → force-stop the scorer; the 'cancelled' event flips the card to 'stopped'
+  //              (NOT auto-dismissed — click ✕ again to remove it).
+  //  - done/error/cancelled → dismiss the card.
+  const appendLine = (tileId: string, line: string) =>
+    setRuns((prev) =>
+      prev[tileId]
+        ? { ...prev, [tileId]: { ...prev[tileId], lines: [...prev[tileId].lines, line] } }
+        : prev,
+    );
+  const onCloseCard = useCallback(
+    (run: TileRun) => {
+      if (run.status === 'queued') {
+        if (run.jobId) {
+          api.cancelRun(run.jobId).catch(() => {});
+          dismissCard(run.tileId);
+        } else {
+          // job id not here yet — keep the stream open so we learn it, cancel on arrival
+          pendingCancel.current.add(run.tileId);
+          appendLine(run.tileId, 'cancelling…');
+        }
+      } else if (run.status === 'running' && run.jobId) {
+        api.cancelRun(run.jobId).catch(() => {});
+        appendLine(run.tileId, 'stopping…');
+      } else {
+        dismissCard(run.tileId);
+      }
+    },
+    [dismissCard],
+  );
+
   const runningTiles = useMemo(
     () =>
-      new Set(Object.values(runs).filter((r) => r.status === 'running').map((r) => r.tileId)),
+      new Set(
+        Object.values(runs)
+          .filter((r) => r.status === 'running' || r.status === 'queued')
+          .map((r) => r.tileId),
+      ),
     [runs],
   );
   const runList = useMemo(
@@ -304,7 +395,7 @@ export function App() {
                 <RunConsole
                   runs={runList}
                   onOpenFinding={setSelectedFindingId}
-                  onDismiss={onDismissRun}
+                  onClose={onCloseCard}
                 />
               </>
             )}

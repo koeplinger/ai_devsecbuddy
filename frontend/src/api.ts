@@ -64,6 +64,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tile_id, engine_name, model }),
     }),
+  // Cancel a streaming run by its job id: removes it from the queue if not yet started,
+  // or force-stops it if running. The run's own stream then ends with a 'cancelled' event.
+  cancelRun: (jobId: string) =>
+    request<{ cancelled: boolean; job_id: string; state: string }>(
+      `/runs/${encodeURIComponent(jobId)}/cancel`,
+      { method: 'POST' },
+    ),
   // Stream a run as NDJSON, invoking onEvent for each progress event. Resolves when
   // the stream ends; rejects (ApiError) on a non-2xx start (404/400/409) or a network
   // drop. `signal` lets the caller abort (e.g. on unmount).

@@ -12,9 +12,11 @@ import io
 import json
 import queue
 import threading
+import uuid
+from dataclasses import dataclass, field
 from typing import Iterator
 
-from devsecbuddy import Ledger, get_engine, load_vectors, run_assessment
+from devsecbuddy import Ledger, RunCancelled, get_engine, load_vectors, run_assessment
 from devsecbuddy.demo import CLEAN_CORPUS, TILES
 from devsecbuddy.engines import AnthropicEngine, EngineNotConfigured, MockEngine, VertexEngine
 from devsecbuddy.models import AppRequest, Finding
@@ -70,11 +72,31 @@ class PdfExtractError(ValueError):
 
 
 class TileBusy(RuntimeError):
-    """A streaming run was requested for a tile that already has one in flight -> 409.
-
-    The product invariant is "one live assessment run per tile" — multiple tiles may
-    run concurrently, but a single tile serializes its runs.
+    """A streaming run was requested for a tile that already has a job in flight (queued
+    or running) -> 409. A tile may have at most one job in the queue at a time.
     """
+
+
+class RunNotActive(KeyError):
+    """cancel() referenced a job id that isn't queued or running (already finished / bad id)."""
+
+
+# Sentinel posted to a job's event queue to signal the stream is complete.
+_END = object()
+
+
+@dataclass
+class _RunJob:
+    """One queued/active streaming assessment. Lives from enqueue until its worker turn
+    finishes (or it is cancelled). ``events`` carries NDJSON-bound progress to the request
+    thread's stream generator; ``cancel`` is observed at each progress event for force-stop."""
+    id: str
+    tile_id: str
+    engine: str
+    model: str | None
+    corpus: list
+    events: queue.Queue = field(default_factory=queue.Queue)
+    cancel: threading.Event = field(default_factory=threading.Event)
 
 
 def _validate_model(engine, model: str | None) -> None:
@@ -96,9 +118,17 @@ class AssessmentService:
     def __init__(self, db_path: str, default_engine: str = "mock"):
         self.db_path = db_path
         self.default_engine = default_engine
-        # Tiles with a streaming run in flight, guarding "one live run per tile".
-        self._running: set[str] = set()
-        self._running_lock = threading.Lock()
+        # --- Single-threaded scorer: every assessment runs one at a time. Streaming runs
+        # are queued and drained by ONE background worker; the same lock also gates the
+        # synchronous run(), so no two assessments ever execute concurrently. ---
+        self._run_lock = threading.Lock()           # held by whichever run is executing
+        self._cv = threading.Condition()            # guards _pending / _jobs / _tiles_in_flight
+        self._pending: list[_RunJob] = []           # FIFO of queued-but-not-started jobs
+        self._jobs: dict[str, _RunJob] = {}         # id -> job (queued or active), for cancel
+        self._tiles_in_flight: set[str] = set()     # tiles with a job queued or running
+        self._worker: threading.Thread | None = None
+        self._worker_lock = threading.Lock()        # serialize lazy worker start
+        self._stop = False                          # set by close() to retire the worker
         # Serialize resume seeding so concurrent first-access requests can't double-seed.
         self._seed_lock = threading.Lock()
 
@@ -134,8 +164,10 @@ class AssessmentService:
         corpus = self._corpus()
         ledger = Ledger(self.db_path)
         try:
-            out = run_assessment(adapter, vectors, corpus,
-                                 ledger=ledger, engine_name=resolved)
+            # Serialize with the streaming worker: one scorer runs at a time, globally.
+            with self._run_lock:
+                out = run_assessment(adapter, vectors, corpus,
+                                     ledger=ledger, engine_name=resolved)
         except NotImplementedError as exc:            # a designed-but-unwired cloud engine
             raise EngineNotAvailable(str(exc)) from exc
         finally:
@@ -151,20 +183,19 @@ class AssessmentService:
 
     def run_stream(self, tile_id: str, engine_name: str | None = None,
                    model: str | None = None) -> Iterator[str]:
-        """Run an assessment, streaming progress as newline-delimited JSON (NDJSON).
+        """Enqueue a streaming assessment and stream its progress as NDJSON.
 
-        Returns a generator of ``"<json>\\n"`` lines the HTTP layer hands to a
-        ``StreamingResponse``. The work runs in a background thread; lifecycle and
-        per-probe events (from ``run_assessment``'s ``on_event``) are forwarded to
-        the client as they happen, so a slow real-engine run shows live progress
-        instead of a single blocking response.
+        Returns a generator of ``"<json>\\n"`` lines for a ``StreamingResponse``. Runs
+        are SERIALIZED: a single background worker drains the queue one job at a time, so
+        a caller may kick off several tiles at once but only one scorer runs — the rest
+        wait. The first event is ``queued`` (carrying the job ``id`` the client uses to
+        cancel and its 1-based queue ``position``); when the worker reaches the job the
+        usual ``run_started`` → … → ``result`` events follow.
 
-        Validation happens *before* the first byte is streamed so the caller can map
-        it to a status code: unknown tile -> ``TileNotFound``, bad engine name ->
-        ``UnknownEngine``, and a tile that is already running -> ``TileBusy`` (409).
-        Errors raised *during* the run (e.g. an unconfigured cloud engine) cannot
-        change the status code once streaming has begun, so they arrive as a terminal
-        ``{"type": "error", ...}`` event instead.
+        Validation happens *before* the first byte: unknown tile -> ``TileNotFound``, bad
+        engine -> ``UnknownEngine``/``UnknownModel``, a tile that already has a job queued
+        or running -> ``TileBusy`` (409). Errors *during* the run arrive as a terminal
+        ``{"type": "error"}`` event; a force-stop arrives as ``{"type": "cancelled"}``.
         """
         if tile_id not in TILES:
             raise TileNotFound(tile_id)
@@ -177,64 +208,151 @@ class AssessmentService:
 
         # Pin the corpus now (in the request thread, like run() does) so a concurrent
         # resume edit/delete can't shift what this run probes mid-flight — and so a DB
-        # error here surfaces before the tile is reserved (no leak).
+        # error here surfaces before the job is enqueued (no leak).
         corpus = self._corpus()
 
-        # Reserve the tile (one live run per tile). Released in the worker's finally,
-        # which always runs once the thread starts — even if the client disconnects.
-        with self._running_lock:
-            if tile_id in self._running:
-                raise TileBusy(f"a run is already in progress for tile {tile_id!r}")
-            self._running.add(tile_id)
-
-        events: queue.Queue = queue.Queue()
-        end = object()
-
-        def worker() -> None:
-            # Everything that can fail lives inside the try so the finally ALWAYS runs:
-            # it must release the tile and post the terminal sentinel, or the tile leaks
-            # (stuck 409) and the stream generator blocks on an event that never comes.
-            # Ledger() itself can raise (locked/permission/corrupt db), so open it here.
-            ledger = None
-            try:
-                ledger = Ledger(self.db_path)
-                adapter = TILES[tile_id](get_engine(resolved, model=model))
-                vectors = load_vectors(enabled_only=True)
-                out = run_assessment(adapter, vectors, corpus, ledger=ledger,
-                                     engine_name=resolved, on_event=events.put)
-                events.put({
-                    "type": "result", "run_id": out["run_id"], "tile_id": tile_id,
-                    "engine_name": resolved, "summary": out["summary"],
-                    "findings": [self._finding_payload(f) for f in out["findings"]],
-                })
-            except NotImplementedError as exc:        # designed-but-unwired engine
-                events.put({"type": "error", "kind": "not_available", "message": str(exc)})
-            except EngineNotConfigured as exc:        # implemented, missing SDK/creds
-                events.put({"type": "error", "kind": "not_configured", "message": str(exc)})
-            except Exception as exc:                  # surfaced to the client, not swallowed
-                events.put({"type": "error", "kind": "error", "message": str(exc)})
-            finally:
-                if ledger is not None:
-                    ledger.close()
-                with self._running_lock:
-                    self._running.discard(tile_id)
-                events.put(end)
-
-        threading.Thread(target=worker, name=f"run-{tile_id}", daemon=True).start()
+        job = _RunJob(id="job-" + uuid.uuid4().hex[:12], tile_id=tile_id,
+                      engine=resolved, model=model, corpus=corpus)
+        self._ensure_worker()
+        with self._cv:
+            if tile_id in self._tiles_in_flight:       # one job per tile (queued or running)
+                raise TileBusy(f"a run is already queued or in progress for tile {tile_id!r}")
+            self._tiles_in_flight.add(tile_id)
+            self._jobs[job.id] = job
+            self._pending.append(job)
+            position = len(self._pending)
+            self._cv.notify()
+        # The 'queued' event is the FIRST thing in the job's queue, so the client always
+        # learns the job id before any run_started the worker may post.
+        job.events.put({"type": "queued", "id": job.id, "tile_id": tile_id,
+                        "engine_name": resolved, "model": model, "position": position})
+        self._emit_positions()
 
         def stream() -> Iterator[str]:
             while True:
-                event = events.get()
-                if event is end:
+                event = job.events.get()
+                if event is _END:
                     break
                 yield json.dumps(event) + "\n"
 
         return stream()
 
+    def cancel_run(self, job_id: str) -> dict:
+        """Cancel a job by id. If it is still QUEUED, drop it from the queue (remove from
+        queue); if it is RUNNING, signal a force-stop (observed at the next probe event).
+        Raises ``RunNotActive`` for an unknown / already-finished id."""
+        removed_from_queue = False
+        with self._cv:
+            job = self._jobs.get(job_id)
+            if job is None:
+                raise RunNotActive(job_id)
+            job.cancel.set()
+            if job in self._pending:                   # not started yet -> remove now
+                self._pending.remove(job)
+                self._jobs.pop(job_id, None)
+                self._tiles_in_flight.discard(job.tile_id)
+                removed_from_queue = True
+        if removed_from_queue:
+            job.events.put({"type": "cancelled", "id": job_id, "reason": "removed_from_queue"})
+            job.events.put(_END)
+            self._emit_positions()
+        # else: the job is active (or just dequeued); the worker / on_event hook stops it.
+        return {"cancelled": True, "job_id": job_id,
+                "state": "removed_from_queue" if removed_from_queue else "stopping"}
+
+    def _ensure_worker(self) -> None:
+        """Start the single drain worker on first use (idempotent)."""
+        with self._worker_lock:
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._worker_loop,
+                                                name="run-worker", daemon=True)
+                self._worker.start()
+
+    def close(self) -> None:
+        """Retire the idle drain worker (call on app shutdown). Idempotent. A job already
+        executing is left to finish; we just stop the loop from waiting for more work."""
+        with self._cv:
+            self._stop = True
+            self._cv.notify_all()
+        worker = self._worker
+        if worker is not None:
+            worker.join(timeout=2.0)
+
+    def _worker_loop(self) -> None:
+        while True:
+            with self._cv:
+                while not self._pending and not self._stop:
+                    self._cv.wait()
+                if self._stop:
+                    return                                 # retired by close()
+                job = self._pending.pop(0)
+                cancelled_in_queue = job.cancel.is_set()  # cancelled after dequeue race
+            try:
+                if cancelled_in_queue:
+                    job.events.put({"type": "cancelled", "id": job.id,
+                                    "reason": "removed_from_queue"})
+                else:
+                    self._emit_positions()             # remaining jobs shift up
+                    with self._run_lock:               # one scorer at a time (gates run() too)
+                        self._run_job(job)
+            finally:
+                with self._cv:
+                    self._jobs.pop(job.id, None)
+                    self._tiles_in_flight.discard(job.tile_id)
+                job.events.put(_END)
+                self._emit_positions()
+
+    def _run_job(self, job: _RunJob) -> None:
+        """Execute one assessment, posting progress (and a terminal result/error/cancelled)
+        to the job's event queue. The ``on_event`` hook doubles as the force-stop check."""
+        def emit(event: dict) -> None:
+            if job.cancel.is_set():
+                raise RunCancelled()
+            job.events.put(event)
+
+        ledger = None
+        try:
+            ledger = Ledger(self.db_path)
+            adapter = TILES[job.tile_id](get_engine(job.engine, model=job.model))
+            vectors = load_vectors(enabled_only=True)
+            out = run_assessment(adapter, vectors, job.corpus, ledger=ledger,
+                                 engine_name=job.engine, on_event=emit)
+            job.events.put({
+                "type": "result", "run_id": out["run_id"], "tile_id": job.tile_id,
+                "engine_name": job.engine, "summary": out["summary"],
+                "findings": [self._finding_payload(f) for f in out["findings"]],
+            })
+        except RunCancelled:
+            job.events.put({"type": "cancelled", "id": job.id, "reason": "force_stopped"})
+        except NotImplementedError as exc:            # designed-but-unwired engine
+            job.events.put({"type": "error", "kind": "not_available", "message": str(exc)})
+        except EngineNotConfigured as exc:            # implemented, missing SDK/creds
+            job.events.put({"type": "error", "kind": "not_configured", "message": str(exc)})
+        except Exception as exc:                      # surfaced to the client, not swallowed
+            job.events.put({"type": "error", "kind": "error", "message": str(exc)})
+        finally:
+            if ledger is not None:
+                ledger.close()
+
+    def _emit_positions(self) -> None:
+        """Push the current 1-based queue position to each still-pending job, so a waiting
+        card shows it advancing as runs ahead of it finish. The puts happen UNDER _cv so a
+        job that is concurrently dequeued or cancelled cannot receive a stale position
+        after it has started or after its terminal event (queue.Queue.put never blocks)."""
+        with self._cv:
+            for index, job in enumerate(self._pending, start=1):
+                job.events.put({"type": "queued", "id": job.id, "position": index})
+
     def running_tiles(self) -> list[str]:
-        """Tiles with a streaming run currently in flight."""
-        with self._running_lock:
-            return sorted(self._running)
+        """Tiles with a job in flight — queued or running."""
+        with self._cv:
+            return sorted(self._tiles_in_flight)
+
+    def queue_snapshot(self) -> dict:
+        """Introspection: ids of pending (queued) jobs in order + the count in flight."""
+        with self._cv:
+            return {"pending": [j.id for j in self._pending],
+                    "in_flight": sorted(self._tiles_in_flight)}
 
     def default_engine_known(self) -> bool:
         """Whether the configured default engine name is a recognized engine."""

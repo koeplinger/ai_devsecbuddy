@@ -15,6 +15,12 @@ from .prober import AdversarialProber
 from .profiler import BaselineProfiler
 
 
+class RunCancelled(Exception):
+    """Raised to stop an in-flight run cleanly (a force-stop). Typically thrown from the
+    ``on_event`` callback at a probe boundary; ``run_assessment`` marks the run
+    ``cancelled`` (not ``failed``) and re-raises so the caller can react."""
+
+
 def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
                    ledger: Ledger | None = None, engine_name: str = "mock",
                    on_event=None) -> dict:
@@ -58,6 +64,10 @@ def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
         ledger.close_run(run_id, summary)
         return {"run_id": run_id, "tile_id": adapter.tile_id, "baseline": baseline,
                 "results": results, "findings": findings, "summary": summary}
+    except RunCancelled:
+        if run_id is not None:
+            ledger.cancel_run(run_id)         # force-stopped -> 'cancelled', not 'failed'
+        raise
     except Exception:
         if run_id is not None:
             ledger.fail_run(run_id)
