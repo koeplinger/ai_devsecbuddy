@@ -594,12 +594,113 @@ h4 {
   z-index: 50;
 }
 .drawer {
-  width: min(560px, 92vw);
+  width: min(896px, 95vw); /* ~60% wider than the original 560px, for the exec summary */
   height: 100%;
   background: var(--panel);
   box-shadow: -4px 0 24px rgba(16, 24, 40, 0.18);
   padding: 1.1rem 1.3rem;
   overflow-y: auto;
+}
+
+/* ---- finding executive summary (presentation-ready, copy-paste friendly) ---- */
+.exec-summary {
+  margin: 0.6rem 0 1.2rem;
+  padding: 1rem 1.15rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  /* a formal, report-style serif distinct from the app's UI sans */
+  font-family: Georgia, 'Times New Roman', 'Iowan Old Style', serif;
+  color: var(--ink);
+}
+.exec-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.3rem 0 0.5rem;
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+}
+.exec-section::before {
+  /* a crisp accent rule marks the section, instead of a heavy chip */
+  content: '';
+  flex: none;
+  width: 4px;
+  height: 0.95em;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.exec-section:first-child {
+  margin-top: 0;
+}
+.exec-summary p {
+  margin: 0 0 0.2rem;
+  font-size: 0.97rem;
+  line-height: 1.5;
+}
+.exec-example {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.1rem 0 0.25rem;
+}
+.exec-io {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+.exec-io-label {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.exec-io code {
+  display: block;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.4rem 0.55rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.exec-swap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 0.92rem;
+}
+.exec-swap code {
+  background: var(--code-bg);
+  border-radius: 5px;
+  padding: 0.1rem 0.4rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+.exec-swap b {
+  font-variant-numeric: tabular-nums;
+}
+.exec-arrow {
+  color: var(--muted);
+}
+.exec-delta {
+  color: var(--danger);
+  font-weight: 700;
+}
+.exec-example-plain {
+  font-size: 0.92rem;
+  color: var(--muted);
 }
 .drawer:focus {
   outline: none;

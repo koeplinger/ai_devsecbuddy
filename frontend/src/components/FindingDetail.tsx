@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
 import type { Finding } from '../types';
 import { CategoryBadge, SeverityBadge } from './Badge';
+import { FindingExecSummary } from './FindingExecSummary';
 
 export function FindingDetail({
   findingId,
@@ -75,6 +76,9 @@ export function FindingDetail({
               <CategoryBadge category={finding.category} />
               <span className="pill pill-neutral">{finding.status}</span>
             </div>
+
+            <FindingExecSummary finding={finding} />
+
             <dl className="kv">
               <dt>Finding id</dt>
               <dd>
@@ -97,7 +101,7 @@ export function FindingDetail({
               <dd>{finding.created_at}</dd>
             </dl>
 
-            <h4>What happened</h4>
+            <h4>Detection detail</h4>
             <p>{finding.detail}</p>
 
             <h4>Mitigation guidance</h4>
