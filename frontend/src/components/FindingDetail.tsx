@@ -104,9 +104,6 @@ export function FindingDetail({
             <h4>Detection detail</h4>
             <p>{finding.detail}</p>
 
-            <h4>Mitigation guidance</h4>
-            <p className="mitigation">{finding.mitigation_guidance}</p>
-
             {finding.repro && (
               <>
                 <h4>Reproduction</h4>

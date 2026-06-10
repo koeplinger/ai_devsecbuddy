@@ -141,6 +141,8 @@ export function FindingExecSummary({ finding }: { finding: Finding }) {
       {s.example}
       <h4 className="exec-section">Why this is bad</h4>
       <p>{s.whyBad}</p>
+      <h4 className="exec-section">How to fix it</h4>
+      <p>{finding.mitigation_guidance}</p>
     </section>
   );
 }
