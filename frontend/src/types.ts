@@ -134,7 +134,8 @@ export type RunEvent =
       category: string;
       severity: string;
     }
-  | { type: 'name_swap'; axis: string; from: string; to: string }
+  | { type: 'learning'; index: number; total: number; name: string }
+  | { type: 'name_swap'; axis: string; from: string; to: string; interest?: string }
   | { type: 'probe_target'; vector_id: string; name: string }
   | {
       type: 'probe_done';

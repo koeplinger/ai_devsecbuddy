@@ -173,13 +173,14 @@ common fairness criteria are mathematically incompatible in general. See
 [bias-and-fairness.md](bias-and-fairness.md).
 
 **Status: implemented.** The library now spans all four categories
-(`attack-library/vectors/` — 6 enabled vectors driving the demo plus 3 staged
-`enabled: false` vectors for real-engine techniques), and the fairness suite —
-mean/max delta, demographic-parity gap, disparate-impact (four-fifths) ratio, and
-flip rate — is computed by [`../devsecbuddy/fairness.py`](../devsecbuddy/fairness.py)
+(`attack-library/vectors/` — 7 enabled vectors driving the demo, incl. two
+`bias_fairness` probes (counterfactual name-swap and proxy-feature name+interest),
+plus staged `enabled: false` vectors for real-engine techniques), and the fairness
+suite — mean/max delta, demographic-parity gap, disparate-impact (four-fifths) ratio,
+and flip rate — is computed by [`../devsecbuddy/fairness.py`](../devsecbuddy/fairness.py)
 and recorded in every `bias_fairness` finding's evidence. The four-tile divergence
 now covers `prompt_injection`, `modal_jailbreak`, `data_exfiltration`, and
-`bias_fairness` (`tile-unguarded` → 6 findings, `tile-hardened` → 0); 31 tests pass.
+`bias_fairness` (`tile-unguarded` → 7 findings, `tile-hardened` → 0); 68 tests pass.
 
 ### M6 — Wire `AnthropicEngine`, then `VertexEngine` 🚧 🔑 requires external setup
 

@@ -28,9 +28,18 @@ class BaselineProfiler:
         self._refusals = 0
         self._n = 0
 
-    def observe(self, adapter: AppAdapter, corpus: Iterable[AppRequest]) -> None:
-        """Passively run clean traffic through the tile; accumulate behavior stats."""
-        for request in corpus:
+    def observe(self, adapter: AppAdapter, corpus: Iterable[AppRequest], on_event=None) -> None:
+        """Passively run clean traffic through the tile; accumulate behavior stats.
+
+        ``on_event`` (optional) receives a ``learning`` event per resume as it is observed
+        (name + index/total), so the backend can stream per-resume learning progress.
+        """
+        corpus = list(corpus)
+        total = len(corpus)
+        for index, request in enumerate(corpus, start=1):
+            if on_event is not None:
+                on_event({"type": "learning", "index": index, "total": total,
+                          "name": request.fields.get("applicant_name", "")})
             response = adapter.invoke(request)
             self._tile_id = adapter.tile_id
             key = resume_key(request.fields.get("resume_text", request.raw_text or ""))

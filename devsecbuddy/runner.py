@@ -30,6 +30,7 @@ def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
     emit = on_event if on_event is not None else (lambda _event: None)
     own_ledger = ledger is None
     ledger = ledger or Ledger()
+    corpus = list(corpus)  # materialize once: observed in learning, re-used for probing
     enabled = [v for v in vectors if v.enabled]
     run_id = None
     try:
@@ -40,7 +41,7 @@ def run_assessment(adapter: AppAdapter, vectors: list[AttackVector], corpus,
 
         emit({"type": "phase", "phase": "baseline"})
         profiler = BaselineProfiler()
-        profiler.observe(adapter, corpus)
+        profiler.observe(adapter, corpus, on_event=emit)
         baseline = profiler.build(adapter.tile_id)
         ledger.record_baseline(run_id, baseline)
         emit({"type": "baseline_done", "sample_count": baseline.sample_count})

@@ -110,7 +110,7 @@ def test_run_unguarded_reproduces_full_profile(client):
     assert resp.status_code == 201
     body = resp.json()
     assert body["engine_name"] == "mock"
-    assert body["summary"]["vulnerabilities_found"] == 6
+    assert body["summary"]["vulnerabilities_found"] == 7
     cats = {f["category"] for f in body["findings"]}
     assert cats == {"prompt_injection", "modal_jailbreak", "data_exfiltration", "bias_fairness"}
 
@@ -155,14 +155,14 @@ def test_run_stream_emits_progress_then_result(client):
 
     started = [e for e in events if e["type"] == "probe_started"]
     done = [e for e in events if e["type"] == "probe_done"]
-    assert len(started) == 6 == len(done)            # one per enabled vector
-    assert started[0]["total"] == 6 and started[0]["index"] == 1
+    assert len(started) == 7 == len(done)            # one per enabled vector
+    assert started[0]["total"] == 7 and started[0]["index"] == 1
     assert all("vector_id" in e and "category" in e for e in started)
 
     result = events[-1]
     assert result["engine_name"] == "mock"
-    assert result["summary"]["vulnerabilities_found"] == 6
-    assert len(result["findings"]) == 6
+    assert result["summary"]["vulnerabilities_found"] == 7
+    assert len(result["findings"]) == 7
     cats = {f["category"] for f in result["findings"]}
     assert cats == {"prompt_injection", "modal_jailbreak", "data_exfiltration", "bias_fairness"}
 
@@ -228,24 +228,31 @@ def test_run_stream_releases_tile_on_early_close(tmp_path):
 def test_findings_filter_by_engine(client):
     client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"})
     on_mock = client.get("/findings", params={"engine": "mock"}).json()
-    assert len(on_mock) == 6 and all(f["category"] for f in on_mock)
+    assert len(on_mock) == 7 and all(f["category"] for f in on_mock)
     # no findings were produced by any other engine in this ledger
     assert client.get("/findings", params={"engine": "anthropic"}).json() == []
-    # engine combines with the existing column filters (severity lives on findings)
+    # engine combines with the existing column filters (severity lives on findings). The
+    # severity filter is exact, and injection/jailbreak/bias each land on high OR critical
+    # depending on the random sample, so count the serious tier (everything but the two
+    # medium data_exfiltration findings) = 5, which is deterministic.
     high_mock = client.get("/findings", params={"engine": "mock", "severity": "high"}).json()
-    assert len(high_mock) >= 3  # 2x injection + jailbreak always high (bias is high or critical)
+    assert all(f["severity"] == "high" for f in high_mock)
+    serious = [f for f in on_mock if f["severity"] in ("high", "critical")]
+    assert len(serious) == 5  # 2x injection + jailbreak + 2x bias (exfil x2 is medium)
 
 
 def test_findings_filter_by_model(client):
     client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"})
     # model lives in the finding's repro JSON; the filter matches it post-query
     on_model = client.get("/findings", params={"model": "mock-resume-scorer-1"}).json()
-    assert len(on_model) == 6
+    assert len(on_model) == 7
     assert client.get("/findings", params={"model": "gemini-2.5-pro"}).json() == []
     # model combines with engine + column filters
     combined = client.get("/findings", params={"engine": "mock", "model": "mock-resume-scorer-1",
                                                "severity": "high"}).json()
-    assert len(combined) >= 3
+    assert all(f["severity"] == "high" and f["category"] for f in combined)
+    serious = [f for f in on_model if f["severity"] in ("high", "critical")]
+    assert len(serious) == 5
 
 
 def test_findings_carry_engine_and_model(client):
@@ -261,19 +268,19 @@ def test_findings_carry_engine_and_model(client):
 def test_delete_findings_removes_them_permanently(client):
     client.post("/runs", json={"tile_id": "tile-unguarded"})
     findings = client.get("/findings", params={"tile_id": "tile-unguarded"}).json()
-    assert len(findings) == 6
+    assert len(findings) == 7
 
     ids = [f["id"] for f in findings[:2]]
     resp = client.request("DELETE", "/findings", json={"ids": ids})
     assert resp.status_code == 200 and resp.json()["deleted"] == 2
 
     remaining = client.get("/findings", params={"tile_id": "tile-unguarded"}).json()
-    assert len(remaining) == 4
+    assert len(remaining) == 5
     assert {f["id"] for f in remaining}.isdisjoint(ids)        # the right rows went
 
     # deleting the rest empties the ledger; empty / unknown ids are a safe no-op
     rest = [f["id"] for f in remaining]
-    assert client.request("DELETE", "/findings", json={"ids": rest}).json()["deleted"] == 4
+    assert client.request("DELETE", "/findings", json={"ids": rest}).json()["deleted"] == 5
     assert client.get("/findings", params={"tile_id": "tile-unguarded"}).json() == []
     assert client.request("DELETE", "/findings", json={"ids": []}).json()["deleted"] == 0
     assert client.request("DELETE", "/findings", json={"ids": ["nope"]}).json()["deleted"] == 0
@@ -352,13 +359,12 @@ def test_resume_labels_persist_and_drive_bias_pairing(client):
                                       "gender": g, "ethnicity": e})
 
     run = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"}).json()
-    assert run["summary"]["vulnerabilities_found"] == 6
+    assert run["summary"]["vulnerabilities_found"] == 7
     bias = next(f for f in run["findings"] if f["category"] == "bias_fairness")
     variants = client.get(f"/findings/{bias['id']}").json()["evidence"]["response"]["variants"]
-    names = {v["a"] for v in variants} | {v["b"] for v in variants}
-    # the probe swapped THESE resume names (not the curated fallback set)
-    assert {"James Carter", "Emily Brooks", "Hiroshi Tanaka"} <= names
-    assert {v["axis"] for v in variants} == {"gender", "ethnicity"}
+    # the probe swapped THESE resume names (each resume's own name is the 'from')
+    assert {v["a"] for v in variants} == {"James Carter", "Emily Brooks", "Hiroshi Tanaka"}
+    assert {v["axis"] for v in variants} <= {"gender", "ethnicity", "both"}
 
 
 def test_runs_probe_the_db_resume_corpus(client):
@@ -370,7 +376,7 @@ def test_runs_probe_the_db_resume_corpus(client):
     assert len(client.get("/resumes").json()) == 1
     # the ladder still holds regardless of corpus content (probes inject their own payloads)
     body = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock"}).json()
-    assert body["summary"]["vulnerabilities_found"] == 6
+    assert body["summary"]["vulnerabilities_found"] == 7
 
 
 def test_resume_pdf_extraction(client):
@@ -422,10 +428,12 @@ def test_reports_list_runs_and_findings(client):
 
     detail = client.get(f"/runs/{run_id}").json()
     assert detail["engine_name"] == "mock"
-    assert len(detail["findings"]) == 6
+    assert len(detail["findings"]) == 7
 
     highs = client.get("/findings", params={"tile_id": "tile-unguarded", "severity": "high"}).json()
-    assert len(highs) >= 3  # 2x injection + jailbreak always high (bias is high or critical)
+    assert all(f["severity"] == "high" for f in highs)  # exact-severity filter
+    serious = [f for f in detail["findings"] if f["severity"] in ("high", "critical")]
+    assert len(serious) == 5  # 2x injection + jailbreak + 2x bias (exfil x2 is medium)
 
     finding_id = highs[0]["id"]
     full = client.get(f"/findings/{finding_id}").json()

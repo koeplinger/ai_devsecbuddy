@@ -15,6 +15,11 @@ const GENDERS = ['unspecified', 'male', 'female'];
 const ETHNICITIES = ['unspecified', 'american', 'african', 'asian', 'hispanic'];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// The list is shown alphabetically by applicant name (case-insensitive), regardless of
+// when each resume was last edited.
+const byName = (a: Resume, b: Resume) =>
+  a.applicant_name.localeCompare(b.applicant_name, undefined, { sensitivity: 'base' });
+
 export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void }) {
   const [resumes, setResumes] = useState<Resume[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,8 +60,9 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
     setLoadError(null);
     api
       .resumes()
-      .then((rs) => {
+      .then((raw) => {
         if (!mounted.current) return;
+        const rs = [...raw].sort(byName);
         setResumes(rs);
         setSelectedId((cur) => {
           const want = selectAfter ?? cur;
@@ -160,8 +166,9 @@ export function ResumesPanel({ onDirtyChange }: { onDirtyChange?: (dirty: boolea
     setActionError(null);
     api
       .resetResumes()
-      .then((rs) => {
+      .then((raw) => {
         if (!mounted.current) return;
+        const rs = [...raw].sort(byName);
         setConfirmReset(false);
         setResumes(rs);
         setSelectedId(rs[0]?.id ?? null); // discards any draft; editor repopulates from selection

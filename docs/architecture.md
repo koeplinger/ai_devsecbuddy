@@ -340,7 +340,7 @@ each event to the client as **newline-delimited JSON** (`application/x-ndjson`):
 `run_started` → `phase` (baseline) → `baseline_done` → `phase` (probing) →
 `probe_started`/`probe_done` per vector → `phase` (reporting) → a terminal
 `result` (or `error`). The frontend renders these live in a per-tile run console,
-so a six-vector run shows "Probe 3/6: `pi-favorable-score-001` running…" as it
+so a seven-vector run shows "Probe 3/7: `pi-favorable-score-001` running…" as it
 happens. The events are pure progress reporting — `run_assessment` returns exactly
 the same result whether or not anyone is listening.
 

@@ -29,14 +29,18 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       if (ev.phase === 'probing')
         return withLine(`② Active probing — ${run.totalProbes ?? ''} attack vectors…`.trim());
       return withLine('③ Actionable reporting — recording findings…');
+    case 'learning':
+      return withLine(`   learning from ${ev.name} (${ev.index}/${ev.total})…`);
     case 'baseline_done':
       return withLine(`   baseline captured · ${ev.sample_count} clean samples`);
     case 'probe_started':
       return withLine(`   ▸ ${ev.index}/${ev.total}  ${ev.vector_id} (${ev.category}) running…`, {
         current: { index: ev.index, total: ev.total, label: `${ev.vector_id} (${ev.category})` },
       });
-    case 'name_swap':
-      return withLine(`       ↔ name swap (${ev.axis}): ${ev.from} → ${ev.to}`);
+    case 'name_swap': {
+      const swap = `       ↔ name swap (${ev.axis}): ${ev.from} → ${ev.to}`;
+      return withLine(ev.interest ? `${swap}\n          ⤷ interests → ${ev.interest}` : swap);
+    }
     case 'probe_target':
       return withLine(`       · testing resume: ${ev.name}`);
     case 'probe_done':
