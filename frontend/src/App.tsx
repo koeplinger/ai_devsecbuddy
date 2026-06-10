@@ -326,11 +326,6 @@ export function App() {
     () => Object.values(runs).sort((a, b) => b.startedAt - a.startedAt),
     [runs],
   );
-  const engineNames = useMemo(() => engines.map((e) => e.name), [engines]);
-  const modelNames = useMemo(
-    () => [...new Set(engines.flatMap((e) => e.models ?? []).map((m) => m.id))],
-    [engines],
-  );
 
   // Warn before leaving the Resumes tab with unsaved edits.
   const changeTab = useCallback(
@@ -418,9 +413,6 @@ export function App() {
             )}
             {tab === 'ledger' && (
               <LedgerViewer
-                tiles={tiles}
-                engineNames={engineNames}
-                modelNames={modelNames}
                 defaultEngine={selectedEngine}
                 refreshKey={ledgerRefreshKey}
                 onOpenFinding={setSelectedFindingId}

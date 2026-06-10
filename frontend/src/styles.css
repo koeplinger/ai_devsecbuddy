@@ -568,6 +568,18 @@ h4 {
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
+/* A filter with only one possible value is shown fixed (read-only), not as a dropdown. */
+.filter-fixed strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.3rem 0.5rem;
+  border-radius: 7px;
+  border: 1px dashed var(--line);
+  background: var(--code-bg);
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: normal;
+}
 
 /* ---- drawer ---- */
 .drawer-overlay {
