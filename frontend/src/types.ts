@@ -143,6 +143,7 @@ export type RunEvent =
       severity: string;
     }
   | { type: 'learning'; index: number; total: number; name: string }
+  | { type: 'learning_retry'; index: number; total: number; name: string; attempt: number }
   | { type: 'name_swap'; axis: string; from: string; to: string; interest?: string }
   | { type: 'probe_target'; vector_id: string; name: string }
   | { type: 'rate_limited'; attempt: number; wait_s: number; remaining_s: number; engine?: string }

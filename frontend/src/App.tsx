@@ -51,6 +51,8 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       return withLine('③ Actionable reporting — recording findings…');
     case 'learning':
       return withLine(`   learning from ${ev.name} (${ev.index}/${ev.total})…`);
+    case 'learning_retry':
+      return withLine(`       ↻ ${ev.name}: unparseable score — retrying (${ev.attempt}/3)…`);
     case 'baseline_done':
       return withLine(`   baseline captured · ${ev.sample_count} clean samples`);
     case 'probe_started':

@@ -240,6 +240,53 @@ def test_probe_emits_progress_events(vectors, tmp_path):
     assert targets and all(e.get("name") for e in targets)
 
 
+class _ScriptedAdapter:
+    """Adapter stub whose invoke() returns a scripted sequence of scores (None / 0 = malformed)."""
+
+    tile_id = "tile-test"
+
+    def __init__(self, scores):
+        self._scores = list(scores)
+        self.calls = 0
+
+    def invoke(self, _request):
+        from devsecbuddy.models import AppResponse
+
+        s = self._scores[self.calls] if self.calls < len(self._scores) else None
+        self.calls += 1
+        text = f"SCORE: {int(s)}/100\nok." if s is not None else "(the model errored — no score line)"
+        return AppResponse(score=s, text=text, metadata={})
+
+
+def test_baseline_retries_malformed_until_valid_score():
+    # the learning phase re-asks past an unparseable None and a degenerate 0, and only the
+    # real score (73) feeds the baseline — the 0/None never pollute it.
+    adapter = _ScriptedAdapter([None, 0.0, 73.0])
+    profiler = BaselineProfiler()
+    events: list[dict] = []
+    profiler.observe(adapter, [AppRequest(fields={"applicant_name": "Ada", "resume_text": "x"})],
+                     on_event=events.append)
+    baseline = profiler.build("tile-test")
+    assert adapter.calls == 3  # initial + 2 retries, stopped on the valid 73
+    assert baseline.score_stats["__overall__"]["mean"] == 73.0
+    assert [e["attempt"] for e in events if e["type"] == "learning_retry"] == [1, 2]
+
+
+def test_baseline_gives_up_after_three_retries():
+    # always malformed -> at most 3 retries (4 calls), then move on; the baseline is left
+    # un-polluted (no entry) rather than recording a bogus 0, and the sample still counts.
+    adapter = _ScriptedAdapter([None, None, None, None, None])
+    profiler = BaselineProfiler()
+    events: list[dict] = []
+    profiler.observe(adapter, [AppRequest(fields={"applicant_name": "Ada", "resume_text": "x"})],
+                     on_event=events.append)
+    baseline = profiler.build("tile-test")
+    assert adapter.calls == 4  # initial + 3 retries
+    assert "__overall__" not in baseline.score_stats
+    assert baseline.sample_count == 1
+    assert len([e for e in events if e["type"] == "learning_retry"]) == 3
+
+
 def test_findings_dedupe_within_run(vectors, tmp_path):
     adapter = TILES["tile-unguarded"](get_engine("mock"))
     ledger = Ledger(str(tmp_path / "ledger.db"))
