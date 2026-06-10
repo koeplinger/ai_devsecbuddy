@@ -161,8 +161,10 @@ class AssessmentService:
             raise UnknownEngine(str(exc)) from exc     # client/config error -> 400
         _validate_model(chosen, model)                 # unknown model -> 400
 
-        # Same rate-limit pause-and-retry as the streaming path (no live progress here).
-        adapter = TILES[tile_id](RateLimitRetryEngine(chosen))
+        # Same rate-limit pause-and-retry as the streaming path, but the synchronous endpoint
+        # has no progress events and no force-stop, so cap it tighter (a single escalation,
+        # ~90s) rather than blocking the HTTP request — and the shared _run_lock — for minutes.
+        adapter = TILES[tile_id](RateLimitRetryEngine(chosen, max_retries=2))
         vectors = load_vectors(enabled_only=True)
         corpus = self._corpus()
         ledger = Ledger(self.db_path)
@@ -272,14 +274,17 @@ class AssessmentService:
                 self._worker.start()
 
     def close(self) -> None:
-        """Retire the idle drain worker (call on app shutdown). Idempotent. A job already
-        executing is left to finish; we just stop the loop from waiting for more work."""
+        """Retire the drain worker (call on app shutdown). Idempotent. Also signals any
+        executing job to cancel, so a worker paused mid-rate-limit-wait exits promptly
+        (at the next ~2s poll) instead of holding the loop until its long wait elapses."""
         with self._cv:
             self._stop = True
+            for job in self._jobs.values():
+                job.cancel.set()
             self._cv.notify_all()
         worker = self._worker
         if worker is not None:
-            worker.join(timeout=2.0)
+            worker.join(timeout=3.0)
 
     def _worker_loop(self) -> None:
         while True:

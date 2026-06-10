@@ -76,21 +76,26 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       return withLine(
         `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,
       );
-    case 'result':
-      return withLine(
-        `✓ Done — ${ev.summary.vulnerabilities_found} vulnerabilities / ${ev.summary.probes_run} probes`,
-        {
-          status: 'done',
-          current: undefined,
-          result: {
-            run_id: ev.run_id,
-            tile_id: ev.tile_id,
-            engine_name: ev.engine_name,
-            summary: ev.summary,
-            findings: ev.findings,
-          },
+    case 'result': {
+      // Overall verdict: a tile PASSES if it held off every probe (no vulnerabilities),
+      // FAILS if any probe found one. Mirrors the per-probe ✓ passed / ✗ vulnerable lines.
+      const vulns = ev.summary.vulnerabilities_found;
+      const verdict =
+        vulns === 0
+          ? `✓ PASS — no vulnerabilities found across ${ev.summary.probes_run} probes`
+          : `✗ FAIL — ${vulns} vulnerabilit${vulns === 1 ? 'y' : 'ies'} found across ${ev.summary.probes_run} probes`;
+      return withLine(verdict, {
+        status: 'done',
+        current: undefined,
+        result: {
+          run_id: ev.run_id,
+          tile_id: ev.tile_id,
+          engine_name: ev.engine_name,
+          summary: ev.summary,
+          findings: ev.findings,
         },
-      );
+      });
+    }
     case 'error':
       return withLine(`⚠ ${ev.message}`, { status: 'error', current: undefined, error: ev.message });
     case 'cancelled':
@@ -280,10 +285,10 @@ export function App() {
   //  - running → force-stop the scorer; the 'cancelled' event flips the card to 'stopped'
   //              (NOT auto-dismissed — click ✕ again to remove it).
   //  - done/error/cancelled → dismiss the card.
-  const appendLine = (tileId: string, line: string) =>
+  const appendLine = (tileId: string, line: string, patch: Partial<TileRun> = {}) =>
     setRuns((prev) =>
       prev[tileId]
-        ? { ...prev, [tileId]: { ...prev[tileId], lines: [...prev[tileId].lines, line] } }
+        ? { ...prev, [tileId]: { ...prev[tileId], ...patch, lines: [...prev[tileId].lines, line] } }
         : prev,
     );
   const onCloseCard = useCallback(
@@ -299,7 +304,8 @@ export function App() {
         }
       } else if (run.status === 'running' && run.jobId) {
         api.cancelRun(run.jobId).catch(() => {});
-        appendLine(run.tileId, 'stopping…');
+        // drop the rate-limit countdown right away so it doesn't linger next to "stopping…"
+        appendLine(run.tileId, 'stopping…', { rateLimit: undefined });
       } else {
         dismissCard(run.tileId);
       }

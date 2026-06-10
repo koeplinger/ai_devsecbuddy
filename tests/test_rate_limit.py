@@ -86,6 +86,36 @@ def test_detector_covers_provider_shapes():
     assert not is_rate_limit_error(RuntimeError("404 not found"))
 
 
+def test_detector_structured_status_overrides_message_text():
+    # The crux: the prompt embeds the candidate's resume, and the SDKs echo the request in
+    # the error str(). A non-429 error whose MESSAGE mentions rate limits must NOT be retried.
+    msg = "INVALID_ARGUMENT: resume reads 'cut 429 errors, enforce rate limit and quota; too many requests'"
+
+    class BadReq(Exception):              # anthropic-style: clean .status_code
+        status_code = 400
+
+    class GoogleApiErr(Exception):        # google-genai-style: clean .code (int)
+        code = 400
+
+    class HttpxErr(Exception):            # httpx-style: status on .response
+        response = type("R", (), {"status_code": 403})()
+
+    assert not is_rate_limit_error(BadReq(msg))
+    assert not is_rate_limit_error(GoogleApiErr(msg))
+    assert not is_rate_limit_error(HttpxErr(msg))
+
+    # genuine 429s with the same vocabulary ARE retried; '429' inside a larger number is not
+    class TooMany(Exception):
+        status_code = 429
+
+    class Grpc(Exception):
+        status = "RESOURCE_EXHAUSTED"
+
+    assert is_rate_limit_error(TooMany("slow down"))
+    assert is_rate_limit_error(Grpc("quota for the project is exhausted"))
+    assert not is_rate_limit_error(RuntimeError("gateway timeout on host 14290"))  # \\b429\\b
+
+
 def test_transparent_proxy_delegates_identity():
     eng, _ = _wrap(_FlakyEngine(fail_times=0))
     assert eng.name == "fake" and eng.model == "fake-1" and eng.info()["model"] == "fake-1"

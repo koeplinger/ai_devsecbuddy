@@ -13,7 +13,14 @@ the wait promptly. With no hook (the synchronous path) it simply sleeps and retr
 """
 from __future__ import annotations
 
+import re
 import time
+
+# Word-boundary rate-limit vocabulary for the TEXT fallback (used only when no structured
+# HTTP status is available). Word boundaries avoid matching '429' inside '14290' etc.
+_RATE_LIMIT_TEXT = re.compile(
+    r"\b(429|resource_exhausted|rate[ _-]?limit|too many requests|quota)\b", re.IGNORECASE
+)
 
 # Escalating-backoff step and cap. The Nth rate-limit pause in a run waits N * step; after
 # ``RATE_LIMIT_MAX_RETRIES`` pauses the rate-limit error is allowed to propagate (the run
@@ -23,19 +30,31 @@ RATE_LIMIT_MAX_RETRIES = 6
 _POLL_S = 2.0  # how often to re-emit the wait (also the force-stop reaction latency)
 
 
-def is_rate_limit_error(exc: BaseException) -> bool:
-    """True if ``exc`` looks like a provider rate-limit / quota error (HTTP 429 /
-    ``RESOURCE_EXHAUSTED``). Type-agnostic so it covers ``anthropic.RateLimitError``,
-    Google's ``ResourceExhausted``, and bare HTTP errors without importing any SDK."""
-    for attr in ("status_code", "code", "http_status", "status"):
+def _numeric_status(exc: BaseException):
+    """The exception's HTTP status as an int, if it carries one (anthropic ``.status_code``,
+    google-genai ``.code``, or httpx ``.response.status_code``); else None."""
+    for attr in ("status_code", "code", "http_status"):
         val = getattr(exc, attr, None)
-        if val == 429 or str(val) == "429":
-            return True
-    text = f"{type(exc).__name__}: {exc}".lower()
-    return any(s in text for s in (
-        "429", "resource_exhausted", "rate limit", "ratelimit",
-        "too many requests", "quota",
-    ))
+        if isinstance(val, int) and not isinstance(val, bool):
+            return val
+    val = getattr(getattr(exc, "response", None), "status_code", None)
+    return val if isinstance(val, int) and not isinstance(val, bool) else None
+
+
+def is_rate_limit_error(exc: BaseException) -> bool:
+    """True if ``exc`` is a provider rate-limit / quota error (HTTP 429 / ``RESOURCE_EXHAUSTED``).
+
+    A **structured HTTP status is authoritative**: a known non-429 (400 bad-request, 401/403
+    auth, 404, …) is NOT a rate limit even if the message text echoes the prompt's words —
+    important here because the prompt embeds the candidate's resume, whose text could mention
+    "rate limit"/"quota"/"429", and the SDKs echo the request back in the error. Only when no
+    numeric status is available does it fall back to a tight, word-boundary text scan."""
+    status = _numeric_status(exc)
+    if status is not None:
+        return status == 429
+    if str(getattr(exc, "status", "")).upper() == "RESOURCE_EXHAUSTED":   # grpc/google name
+        return True
+    return bool(_RATE_LIMIT_TEXT.search(f"{type(exc).__name__}: {exc}"))
 
 
 class RateLimitRetryEngine:

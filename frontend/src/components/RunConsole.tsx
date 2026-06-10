@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TileRun } from '../types';
 import { FindingsTable } from './FindingsTable';
+import { LogModal } from './LogModal';
 
 interface Props {
   runs: TileRun[];
@@ -59,6 +60,8 @@ function RunCard({
   // Details are shown live while a run is in flight; once it completes they collapse
   // behind a "Show details" pill in the summary row.
   const [expanded, setExpanded] = useState(false);
+  // "Show full" opens the whole log in a large-screen modal (the inline box is fixed-height).
+  const [fullOpen, setFullOpen] = useState(false);
   // Show the live log for every non-completed state; a completed card collapses it
   // behind the Show/Hide details toggle.
   const showLog = run.status === 'done' ? expanded : true;
@@ -140,7 +143,9 @@ function RunCard({
       )}
 
       {run.status === 'running' && run.rateLimit && (
-        <p className="run-current rate-limited" role="status">
+        // No live region: the pause-start line in the log (aria-live) announces it once;
+        // the 2s countdown ticks here are visual only, to avoid screen-reader spam.
+        <p className="run-current rate-limited">
           ⏳ Rate limited — retrying in {run.rateLimit.remaining_s}s (attempt{' '}
           {run.rateLimit.attempt})…
         </p>
@@ -148,12 +153,34 @@ function RunCard({
 
       {/* Live log for every non-completed state; the completed card collapses it behind
           the Show/Hide details toggle in the summary row below. */}
-      {run.status !== 'done' && logBox}
+      {run.status !== 'done' && (
+        <>
+          <div className="log-toolbar">
+            <button type="button" className="details-toggle" onClick={() => setFullOpen(true)}>
+              Show full
+            </button>
+          </div>
+          {logBox}
+        </>
+      )}
 
       {run.status === 'error' && run.error && <div className="error">⚠ {run.error}</div>}
 
       {run.status === 'done' && run.result && (
         <div className="run-result">
+          <p className="run-verdict">
+            {run.result.summary.vulnerabilities_found === 0 ? (
+              <span className="verdict pass">✓ PASS</span>
+            ) : (
+              <span className="verdict fail">✗ FAIL</span>
+            )}
+            <span className="verdict-note">
+              {run.result.summary.vulnerabilities_found === 0
+                ? 'no vulnerabilities — guardrails held'
+                : `${run.result.summary.vulnerabilities_found} vulnerabilit` +
+                  (run.result.summary.vulnerabilities_found === 1 ? 'y found' : 'ies found')}
+            </span>
+          </p>
           <div className="summary">
             <Stat label="Probes" value={String(run.result.summary.probes_run)} />
             <Stat
@@ -172,6 +199,9 @@ function RunCard({
             >
               {expanded ? 'Hide details' : 'Show details'}
             </button>
+            <button type="button" className="details-toggle" onClick={() => setFullOpen(true)}>
+              Show full
+            </button>
           </div>
           {expanded && logBox}
           <p className="run-id">
@@ -179,6 +209,14 @@ function RunCard({
           </p>
           <FindingsTable findings={run.result.findings} onOpen={onOpenFinding} />
         </div>
+      )}
+
+      {fullOpen && (
+        <LogModal
+          title={run.tileName}
+          text={run.lines.join('\n')}
+          onClose={() => setFullOpen(false)}
+        />
       )}
     </article>
   );
