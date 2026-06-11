@@ -14,6 +14,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Iterator
 
 from devsecbuddy import Ledger, RunCancelled, get_engine, load_vectors, run_assessment
@@ -87,6 +88,15 @@ class RunNotActive(KeyError):
     """cancel() referenced a job id that isn't queued or running (already finished / bad id)."""
 
 
+# Local date/time WITH timezone, shared by run-log events and the server log, e.g.
+# "2026-06-11 14:23:05 PDT". Same format on both so the two logs read consistently.
+LOG_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S %Z"
+
+
+def log_timestamp() -> str:
+    return datetime.now().astimezone().strftime(LOG_TIMESTAMP_FORMAT)
+
+
 _TERMINAL_EVENTS = ("result", "cancelled", "error")
 # How long a stream blocks waiting for a new event before yielding a heartbeat. The heartbeat
 # (a blank NDJSON line the client skips) ensures the generator yields control periodically, so
@@ -121,7 +131,10 @@ class _RunJob:
 
     def emit(self, event: dict) -> None:
         """Append an event to the durable log, advance ``status``, and wake any attached
-        streamers. Terminal events (result/cancelled/error) also mark the job done."""
+        streamers. Terminal events (result/cancelled/error) also mark the job done. Each event
+        is stamped with a local date/time + timezone (``ts``) at emit time, so the run-console
+        log shows when it happened and the stamp is stable across a refresh/replay."""
+        event.setdefault("ts", log_timestamp())
         with self._cond:
             self.log.append(event)
             t = event.get("type")

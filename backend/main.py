@@ -7,6 +7,7 @@ to this API. Run it with::
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -16,6 +17,7 @@ from pydantic import BaseModel
 
 from .config import Settings, load_settings
 from .service import (
+    LOG_TIMESTAMP_FORMAT,
     MAX_PDF_BYTES,
     AssessmentService,
     EngineNotAvailable,
@@ -30,6 +32,25 @@ from .service import (
     UnknownEngine,
     UnknownModel,
 )
+
+
+def install_timestamped_logging() -> None:
+    """Prefix uvicorn's server log (backend.log) with a local date/time + timezone, matching
+    the run-console log. Applied at startup *after* uvicorn has configured its loggers, so it
+    works however the app is launched (uvicorn CLI, ``--reload``, ``python -m uvicorn``)."""
+    try:
+        from uvicorn.logging import AccessFormatter, DefaultFormatter
+    except Exception:  # not run under uvicorn (e.g. tests) — no uvicorn loggers to reformat
+        return
+    default = DefaultFormatter("%(asctime)s %(levelprefix)s %(message)s",
+                               datefmt=LOG_TIMESTAMP_FORMAT)
+    access = AccessFormatter(
+        '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+        datefmt=LOG_TIMESTAMP_FORMAT)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        fmt = access if name == "uvicorn.access" else default
+        for handler in logging.getLogger(name).handlers:
+            handler.setFormatter(fmt)
 
 
 class RunRequest(BaseModel):
@@ -57,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        install_timestamped_logging()   # tz-aware timestamps in backend.log
         yield
         service.close()       # retire the single drain worker on shutdown
 
@@ -279,3 +301,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
+# Also stamp at import time (after uvicorn has configured its loggers) so even uvicorn's early
+# boot lines are timestamped; the lifespan call re-applies it as a guarantee for every launch.
+install_timestamped_logging()

@@ -15,10 +15,13 @@ type Tab = 'runs' | 'ledger' | 'resumes';
 function applyEvent(run: TileRun, ev: RunEvent): TileRun {
   // Any non-rate-limit event means the scorer resumed — clear the rate-limit banner.
   if (ev.type !== 'rate_limited' && run.rateLimit) run = { ...run, rateLimit: undefined };
+  // Prefix each log line with the backend-stamped local date/time + timezone (stable across
+  // a refresh/replay since it's part of the event, not the moment we render it).
+  const ts = ev.ts ? `${ev.ts}  ` : '';
   const withLine = (line: string, patch: Partial<TileRun> = {}): TileRun => ({
     ...run,
     ...patch,
-    lines: [...run.lines, line],
+    lines: [...run.lines, ts + line],
   });
   switch (ev.type) {
     case 'queued': {

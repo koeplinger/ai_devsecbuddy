@@ -146,7 +146,7 @@ export interface FindingFilters {
 // ---- streaming run progress (NDJSON events from POST /runs/stream) ----
 // One event per line; the backend emits these as run_assessment progresses
 // (devsecbuddy/runner.py + prober.py). The frontend renders them live, per tile.
-export type RunEvent =
+export type RunEvent = (
   | {
       type: 'queued';
       id: string;
@@ -190,7 +190,12 @@ export type RunEvent =
       findings: Finding[];
     }
   | { type: 'error'; kind?: string; message: string }
-  | { type: 'cancelled'; id?: string; reason: 'removed_from_queue' | 'force_stopped' };
+  | { type: 'cancelled'; id?: string; reason: 'removed_from_queue' | 'force_stopped' }
+) & {
+  // Server-stamped log timestamp (local date/time + timezone, e.g. "2026-06-11 14:23:05 PDT").
+  // Stamped by the backend at emit time so it's accurate and stable across a refresh/replay.
+  ts?: string;
+};
 
 // Per-tile run state the UI keeps for the run console (one entry per tile that
 // has been run this session). Multiple tiles can be 'running' at once.
