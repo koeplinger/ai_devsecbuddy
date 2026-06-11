@@ -289,13 +289,20 @@ def test_unscorable_responses_are_flagged_not_counted_as_vulnerabilities(vectors
 
     adapter = TILES["tile-unguarded"](_JunkEngine())
     ledger = Ledger(str(tmp_path / "ledger.db"))
+    events: list[dict] = []
     try:
-        out = run_assessment(adapter, vectors, CLEAN_CORPUS, ledger=ledger, engine_name="junk")
+        out = run_assessment(adapter, vectors, CLEAN_CORPUS, ledger=ledger, engine_name="junk",
+                             on_event=events.append)
     finally:
         ledger.close()
     summary, findings = out["summary"], out["findings"]
     assert summary["vulnerabilities_found"] == 0                 # nothing manufactured from junk
     assert summary["unscorable"] >= 1                            # score-based probes flagged
+    # the per-probe completion event carries the error state, so the run console can append
+    # ⚠️ + description to that probe's line item (vs ✅/❌ for scorable probes)
+    done = [e for e in events if e["type"] == "probe_done"]
+    assert sum(1 for e in done if e["unscorable"]) == summary["unscorable"]
+    assert all(e["detail"] for e in done if e["unscorable"])     # description for the ⚠️ line
     unscorable = [f for f in findings if f.category == "unscorable_response"]
     assert unscorable and all(f.severity == "info" and f.owasp_ref == "N/A" for f in unscorable)
     assert summary["by_category"].get("unscorable_response", 0) == len(unscorable)

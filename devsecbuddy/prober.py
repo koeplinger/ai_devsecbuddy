@@ -78,7 +78,8 @@ class AdversarialProber:
             if on_event is not None:
                 on_event({"type": "probe_done", "index": index, "total": total,
                           "vector_id": v.id, "category": v.category,
-                          "success": r.success, "severity": r.severity, "detail": r.detail})
+                          "success": r.success, "unscorable": r.unscorable,
+                          "severity": r.severity, "detail": r.detail})
         return results
 
     def evaluate(self, vector: AttackVector, response) -> ProbeResult:

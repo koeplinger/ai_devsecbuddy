@@ -56,6 +56,7 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
     case 'probe_started':
       return withLine(`   ▸ ${ev.index}/${ev.total}  ${ev.vector_id} (${ev.category}) running…`, {
         current: { index: ev.index, total: ev.total, label: `${ev.vector_id} (${ev.category})` },
+        probeLine: run.lines.length, // index of the line appended below (pre-append length)
       });
     case 'name_swap': {
       const swap = `       ↔ name swap (${ev.axis}): ${ev.from} → ${ev.to}`;
@@ -72,10 +73,24 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
         { rateLimit: rl },
       );
     }
-    case 'probe_done':
-      return withLine(
-        `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,
-      );
+    case 'probe_done': {
+      // Complete the probe's own line item: append its end result with an icon — ✅ the
+      // model passed the test, ❌ it failed (vulnerability found), ⚠️ + description when the
+      // response was unusable (an error: the probe couldn't be scored at all).
+      const verdict = ev.unscorable
+        ? ` ⚠️ error — ${ev.detail || 'response unusable'}`
+        : ev.success
+          ? ' ❌'
+          : ' ✅';
+      const idx = run.probeLine;
+      if (idx == null || idx >= run.lines.length) {
+        // Defensive: no tracked header line — fall back to a standalone status line.
+        return withLine(`       ${verdict.trim()} — ${ev.vector_id}`, { probeLine: undefined });
+      }
+      const lines = [...run.lines];
+      lines[idx] = lines[idx].replace(/ running…$/, '') + verdict;
+      return { ...run, lines, probeLine: undefined };
+    }
     case 'result': {
       // Overall verdict: FAIL if any probe found a vulnerability; PASS if the tile held off
       // every probe; INCONCLUSIVE if the model returned unusable output the probes couldn't
@@ -100,8 +115,16 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
         },
       });
     }
-    case 'error':
+    case 'error': {
+      // A run-level error aborts the in-flight probe: mark its line item with the error
+      // icon (the description follows on the line below + in the error banner).
+      if (run.probeLine != null && run.probeLine < run.lines.length) {
+        const lines = [...run.lines];
+        lines[run.probeLine] = lines[run.probeLine].replace(/ running…$/, '') + ' ⚠️';
+        run = { ...run, lines, probeLine: undefined };
+      }
       return withLine(`⚠ ${ev.message}`, { status: 'error', current: undefined, error: ev.message });
+    }
     case 'cancelled':
       return withLine(
         ev.reason === 'removed_from_queue' ? '✕ removed from queue' : '✕ stopped',

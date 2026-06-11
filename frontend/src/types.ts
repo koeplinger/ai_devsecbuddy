@@ -177,6 +177,7 @@ export type RunEvent =
       vector_id: string;
       category: string;
       success: boolean;
+      unscorable?: boolean; // the model's response was unusable — the probe couldn't be scored
       severity: string;
       detail: string;
     }
@@ -210,6 +211,9 @@ export interface TileRun {
   rateLimit?: { attempt: number; remaining_s: number; wait_s: number };
   // human-readable progress log lines, appended as events arrive
   lines: string[];
+  // index (into `lines`) of the in-flight probe's "▸ … running…" line — its end result
+  // (✅ / ❌ / ⚠️) is appended onto that same line when the probe completes
+  probeLine?: number;
   // the in-flight probe, for a live "x/total running…" indicator
   current?: { index: number; total: number; label: string };
   totalProbes?: number;

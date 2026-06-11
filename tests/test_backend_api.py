@@ -192,6 +192,8 @@ def test_run_stream_emits_progress_then_result(client):
     assert len(started) == 7 == len(done)            # one per enabled vector
     assert started[0]["total"] == 7 and started[0]["index"] == 1
     assert all("vector_id" in e and "category" in e for e in started)
+    # each completion carries the per-line verdict inputs: success / unscorable / detail
+    assert all("success" in e and e["unscorable"] is False and "detail" in e for e in done)
 
     result = events[-1]
     assert result["engine_name"] == "mock"
