@@ -182,11 +182,23 @@ export function LedgerViewer({ defaultEngine, refreshKey, onOpenFinding }: Props
             />
           );
         })}
-        <button className="btn ghost" onClick={() => setFilters({})}>
+      </div>
+      <div className="ledger-actions">
+        <button
+          className="btn pill"
+          onClick={() => setReload((k) => k + 1)}
+          disabled={loading}
+          title="Re-fetch the ledger from the server"
+        >
+          <RefreshIcon spinning={loading} />
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+        <button className="btn pill" onClick={() => setFilters({})} title="Reset all filters">
+          <FunnelIcon />
           Clear filters
         </button>
         <button
-          className="btn danger-ghost"
+          className="btn pill danger-soft"
           onClick={() => {
             setDeleteError(null);
             setPendingIds(filtered.map((f) => f.id)); // snapshot exactly what's shown now
@@ -194,6 +206,7 @@ export function LedgerViewer({ defaultEngine, refreshKey, onOpenFinding }: Props
           disabled={count === 0 || loading || !!error}
           title={count === 0 ? 'No findings to delete' : 'Permanently delete the findings shown'}
         >
+          <TrashIcon />
           Delete{count > 0 ? ` (${count})` : ''}
         </button>
       </div>
@@ -222,6 +235,47 @@ export function LedgerViewer({ defaultEngine, refreshKey, onOpenFinding }: Props
         </ConfirmModal>
       )}
     </section>
+  );
+}
+
+// Small inline icons for the action pills (stroke = currentColor, so they tint with the pill).
+const ICON = {
+  viewBox: '0 0 24 24',
+  width: 15,
+  height: 15,
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  'aria-hidden': true,
+};
+
+function RefreshIcon({ spinning }: { spinning?: boolean }) {
+  return (
+    <svg {...ICON} className={spinning ? 'spin' : undefined}>
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  );
+}
+
+function FunnelIcon() {
+  return (
+    <svg {...ICON}>
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg {...ICON}>
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <line x1="10" y1="11" x2="10" y2="17" />
+      <line x1="14" y1="11" x2="14" y2="17" />
+    </svg>
   );
 }
 

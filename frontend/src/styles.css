@@ -240,7 +240,44 @@ h4 {
   color: var(--accent-ink);
 }
 .btn.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   border-radius: 999px;
+}
+.btn.pill svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.btn.pill:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* Destructive pill: red accent on a bordered chip (clear distinction from the neutral pills). */
+.btn.pill.danger-soft {
+  color: var(--danger);
+  border-color: #f0c4c4;
+}
+.btn.pill.danger-soft:hover:not(:disabled) {
+  background: #fdeaea;
+}
+.btn.pill.danger-soft:disabled {
+  color: var(--muted);
+  border-color: var(--line);
+}
+.btn.pill .spin {
+  animation: ledger-spin 0.8s linear infinite;
+}
+@keyframes ledger-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.pill .spin {
+    animation: none;
+  }
 }
 .assess-all {
   align-self: flex-end;
@@ -612,6 +649,14 @@ h4 {
   align-items: flex-end;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+/* Action pills (refresh / clear filters / delete) on their own row below the filters. */
+.ledger-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
 }
 .filter {
   display: flex;
