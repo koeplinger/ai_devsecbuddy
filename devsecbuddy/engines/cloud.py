@@ -383,7 +383,9 @@ class GeminiProxyEngine:
     ``GEMINI_PROMPT_URL``, ``GEMINI_LOCATION``, ``GEMINI_MODEL_NAME``,
     ``GEMINI_TIMEOUT_SECONDS``. Gateway-specific extras (``GEMINI_CUSTOM_*``, optional):
     ``GEMINI_CUSTOM_COST_TAG`` (a cost-attribution tag; when set it is registered once and
-    sent with each prompt) and ``GEMINI_CUSTOM_COST_TAG_URL`` (where to register it).
+    sent with each prompt), ``GEMINI_CUSTOM_COST_TAG_URL`` (where to register it), and
+    ``GEMINI_CUSTOM_CA_BUNDLE`` (path to a root-CA PEM bundle for the gateway's TLS — e.g. an
+    internal CA the system trust store doesn't carry).
     """
 
     name = "gemini"
@@ -392,7 +394,8 @@ class GeminiProxyEngine:
                  model: str | None = None, location: str | None = None,
                  api_key_header: str | None = None, prompt_path: str | None = None,
                  timeout_s: float | None = None, cost_tag: str | None = None,
-                 cost_tag_path: str | None = None, transport=None, **kwargs):
+                 cost_tag_path: str | None = None, ca_bundle: str | None = None,
+                 transport=None, **kwargs):
         env = os.environ.get
         d = GEMINI_GATEWAY_DEFAULTS
         # --- standard gateway config (GEMINI_*) ---
@@ -408,9 +411,13 @@ class GeminiProxyEngine:
         # --- gateway-specific extras (GEMINI_CUSTOM_*), optional ---
         self.cost_tag = cost_tag if cost_tag is not None else env("GEMINI_CUSTOM_COST_TAG", "")
         self.cost_tag_path = cost_tag_path or env("GEMINI_CUSTOM_COST_TAG_URL") or d["cost_tag_path"]
+        # Custom root-CA PEM bundle for the gateway's TLS (an internal CA the system store
+        # doesn't trust). Blank -> use the system default trust store.
+        self.ca_bundle = ca_bundle if ca_bundle is not None else env("GEMINI_CUSTOM_CA_BUNDLE", "")
         # injectable HTTP for tests: (url, headers, payload, timeout_s) -> (status, body_text)
         self._transport = transport
         self._cost_tag_ready = False
+        self._ssl_ctx = None
         self._config = kwargs
 
     def configured(self) -> bool:
@@ -439,6 +446,21 @@ class GeminiProxyEngine:
             return path
         return f"{self.base_url}{path if path.startswith('/') else '/' + path}"
 
+    def _ssl_context(self):
+        """TLS context honoring ``GEMINI_CUSTOM_CA_BUNDLE`` (a custom root-CA PEM), built once.
+        Returns ``None`` when unset, so urllib uses the system default trust store."""
+        if not self.ca_bundle:
+            return None
+        if self._ssl_ctx is None:
+            import ssl
+            try:
+                self._ssl_ctx = ssl.create_default_context(cafile=self.ca_bundle)
+            except (OSError, ssl.SSLError) as exc:
+                raise EngineNotConfigured(
+                    f"GEMINI_CUSTOM_CA_BUNDLE could not be loaded ({self.ca_bundle}): {exc}"
+                ) from exc
+        return self._ssl_ctx
+
     def _post_json(self, path: str, payload: dict) -> tuple[int, str]:
         """POST JSON and return (status, body_text). Raises urllib HTTPError on 4xx/5xx —
         whose ``.code`` the rate-limit wrapper reads to detect a 429."""
@@ -453,7 +475,9 @@ class GeminiProxyEngine:
             headers=self._headers(),
             method="POST",
         )
-        with request.urlopen(req, timeout=self.timeout_s) as response:  # noqa: S310 (config'd URL)
+        with request.urlopen(  # noqa: S310 (config'd URL)
+            req, timeout=self.timeout_s, context=self._ssl_context()
+        ) as response:
             return response.status, response.read().decode("utf-8")
 
     def _ensure_cost_tag(self) -> None:

@@ -12,6 +12,9 @@ build/
 venv/
 env/
 .env
+
+# ---- TLS certificates (e.g. GEMINI_CUSTOM_CA_BUNDLE — a custom root-CA PEM) ----
+*.pem
 .env.*
 !.env.example
 !.env.sample

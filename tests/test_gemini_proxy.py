@@ -1,5 +1,7 @@
 """GeminiProxyEngine — the URL/API-key gateway path to Gemini (no SDK, urllib)."""
 import io
+import os
+import ssl
 from urllib.error import HTTPError
 
 import pytest
@@ -148,3 +150,29 @@ def test_gateway_429_is_detected_as_rate_limit():
     # a 403 (auth/quota-shaped text aside) is not retried.
     assert is_rate_limit_error(_http_error(429)) is True
     assert is_rate_limit_error(_http_error(403)) is False
+
+
+def test_no_ca_bundle_uses_system_trust_store():
+    assert GeminiProxyEngine(base_url="https://x", api_key="k")._ssl_context() is None
+
+
+def test_ca_bundle_builds_and_caches_an_ssl_context():
+    system_ca = ssl.get_default_verify_paths().cafile  # a real PEM bundle on disk to load
+    if not system_ca or not os.path.exists(system_ca):
+        pytest.skip("no system CA file available to use as a test bundle")
+    eng = GeminiProxyEngine(base_url="https://x", api_key="k", ca_bundle=system_ca)
+    ctx = eng._ssl_context()
+    assert isinstance(ctx, ssl.SSLContext)
+    assert eng._ssl_context() is ctx  # built once and cached
+
+
+def test_unreadable_ca_bundle_raises_engine_not_configured(tmp_path):
+    eng = GeminiProxyEngine(base_url="https://x", api_key="k",
+                            ca_bundle=str(tmp_path / "does-not-exist.pem"))
+    with pytest.raises(EngineNotConfigured):
+        eng._ssl_context()
+
+
+def test_ca_bundle_reads_gemini_custom_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_CUSTOM_CA_BUNDLE", "/etc/ssl/internal-ca.pem")
+    assert GeminiProxyEngine(base_url="https://x", api_key="k").ca_bundle == "/etc/ssl/internal-ca.pem"
