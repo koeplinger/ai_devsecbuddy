@@ -170,12 +170,15 @@ class Ledger:
     def record(self, run_id: str, results: list[ProbeResult],
                vectors: list[AttackVector] | None = None,
                model: str | None = None) -> list[Finding]:
-        """Convert *failing* probes (success=True) into Findings and persist them.
+        """Convert probes that succeeded (success=True == a vulnerability) — and probes
+        flagged ``unscorable`` (the model returned no parseable score) — into Findings and
+        persist them. An unscorable result is recorded under the ``unscorable_response``
+        category at ``info`` severity: a flag that the model was too weak to be evaluated,
+        NOT a vulnerability.
 
-        Dedupes within a run via UNIQUE(run_id, fingerprint): a repeat of the same
-        underlying vulnerability is ignored rather than duplicated. ``model`` (the
-        engine's model id) is stamped into each finding's repro so the ledger can show
-        which model produced it.
+        Dedupes within a run via UNIQUE(run_id, fingerprint): a repeat of the same underlying
+        signal is ignored rather than duplicated. ``model`` (the engine's model id) is stamped
+        into each finding's repro so the ledger can show which model produced it.
         """
         by_id = {v.id: v for v in (vectors or [])}
         row = self.conn.execute("SELECT engine_name FROM runs WHERE run_id = ?", (run_id,)).fetchone()
@@ -183,23 +186,33 @@ class Ledger:
 
         findings: list[Finding] = []
         for r in results:
-            if not r.success:
+            if not (r.success or r.unscorable):  # only vulns + unscorable flags become findings
                 continue
-            vector = by_id.get(r.vector_id)
-            if vector is not None:
-                mitigation, owasp_ref = vector.mitigation, vector.owasp_ref
+            if r.unscorable:
+                # Not a vulnerability and not tied to the vector's threat — the model simply
+                # couldn't be evaluated. Use the unscorable category's own metadata, not the
+                # probed vector's (else it would inherit e.g. LLM01 + an injection mitigation).
+                mitigation = ("The model returned no parseable score, so this probe could not be "
+                              "evaluated for security. Make the model reliably emit a score "
+                              "before drawing security conclusions.")
+                owasp_ref = CATEGORY_OWASP.get("unscorable_response", "N/A")
+                cwe = None
             else:
-                # Documented 2-arg record(run_id, results): recover the vector's
-                # mitigation/owasp from the attack_vectors snapshot written this run.
-                snap = self.conn.execute(
-                    "SELECT owasp_ref, mitigation FROM attack_vectors WHERE vector_id = ?",
-                    (r.vector_id,)).fetchone()
-                mitigation = (snap["mitigation"] if snap else "") or ""
-                owasp_ref = snap["owasp_ref"] if snap else ""
-            # owasp_ref is a NOT NULL audit column and is deterministically derivable
-            # from category (docs/vulnerability-ledger.md §8); never leave it empty.
-            owasp_ref = owasp_ref or CATEGORY_OWASP.get(r.category, "")
-            cwe = INJECTION_CWE if r.category in ("prompt_injection", "modal_jailbreak") else None
+                vector = by_id.get(r.vector_id)
+                if vector is not None:
+                    mitigation, owasp_ref = vector.mitigation, vector.owasp_ref
+                else:
+                    # Documented 2-arg record(run_id, results): recover the vector's
+                    # mitigation/owasp from the attack_vectors snapshot written this run.
+                    snap = self.conn.execute(
+                        "SELECT owasp_ref, mitigation FROM attack_vectors WHERE vector_id = ?",
+                        (r.vector_id,)).fetchone()
+                    mitigation = (snap["mitigation"] if snap else "") or ""
+                    owasp_ref = snap["owasp_ref"] if snap else ""
+                # owasp_ref is a NOT NULL audit column and is deterministically derivable
+                # from category (docs/vulnerability-ledger.md §8); never leave it empty.
+                owasp_ref = owasp_ref or CATEGORY_OWASP.get(r.category, "")
+                cwe = INJECTION_CWE if r.category in ("prompt_injection", "modal_jailbreak") else None
             fingerprint = _fingerprint(r)
             finding_id = "find-" + short_hash(run_id, fingerprint, length=8)
             created_at = now_iso()

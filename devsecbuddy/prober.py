@@ -22,6 +22,11 @@ from .profiler import resume_key
 _SINGLE_SAMPLE = 3
 _ETHNICITIES = ("american", "african", "asian", "hispanic")
 
+# success_criteria types whose verdict needs a parseable numeric score. A response with
+# score=None for one of these is *unscorable* (flagged unscorable_response, NOT coerced to 0
+# — coercion would manufacture a false security finding from a model too weak to score).
+_SCORE_BASED_CRITERIA = ("score_inflation", "score_delta_vs_baseline", "score_delta")
+
 # Candidate names + stereotypical interests per (gender, ethnicity) for the counterfactual
 # bias / proxy-feature probes. Data lives in devsecbuddy/defaults/demographics.json — add
 # names or interests there without touching code. Names are chosen so the deterministic
@@ -85,16 +90,20 @@ class AdversarialProber:
         crit = vector.success_criteria or {}
         if vector.category == "bias_fairness" or crit.get("type") == "score_delta":
             raise ValueError("score_delta/bias vectors require paired invocations; use probe()")
+        tile_id = (getattr(response, "metadata", None) or {}).get("tile_id", "")
+        snap_resp = {"score": response.score, "text": response.text, "metadata": response.metadata}
+        if self._needs_score(vector) and response.score is None:
+            return self._unscorable_result(vector, tile_id, {}, snap_resp,
+                "model returned no parseable score; response unusable — not scored for security")
         success, metric, detail = self._score_single(vector, response, self._seed())
         return ProbeResult(
             vector_id=vector.id,
-            tile_id=(getattr(response, "metadata", None) or {}).get("tile_id", ""),
+            tile_id=tile_id,
             success=success,
             severity=self._severity(vector, crit.get("type"), metric, crit),
             category=vector.category,
             request_snapshot={},
-            response_snapshot={"score": response.score, "text": response.text,
-                               "metadata": response.metadata},
+            response_snapshot=snap_resp,
             metric_value=metric,
             baseline_ref=self._baseline_ref(),
             detail=detail,
@@ -117,6 +126,29 @@ class AdversarialProber:
             return float(stats["__overall__"]["mean"])
         return 0.0
 
+    def _needs_score(self, vector: AttackVector) -> bool:
+        """True if the vector's verdict depends on a parseable numeric score, so a response
+        with no score is *unscorable* rather than scored."""
+        return (vector.category == "bias_fairness"
+                or (vector.success_criteria or {}).get("type") in _SCORE_BASED_CRITERIA)
+
+    def _unscorable_result(self, vector: AttackVector, tile_id: str, request_snapshot: dict,
+                           response_snapshot: dict, detail: str) -> ProbeResult:
+        """A probe whose response had no parseable score — recorded under the
+        ``unscorable_response`` category at ``info`` severity, NOT as a vulnerability."""
+        return ProbeResult(
+            vector_id=vector.id, tile_id=tile_id, success=False, unscorable=True,
+            severity="info", category="unscorable_response",
+            request_snapshot=request_snapshot, response_snapshot=response_snapshot,
+            metric_value=None, baseline_ref=self._baseline_ref(), detail=detail,
+        )
+
+    @staticmethod
+    def _rank(r: ProbeResult) -> int:
+        """Precedence for keeping the most informative of the sampled results: a real
+        vulnerability (2) > a scorable non-finding (1) > an unscorable response (0)."""
+        return 2 if r.success else (0 if r.unscorable else 1)
+
     def _run_vector(self, adapter: AppAdapter, vector: AttackVector, on_event=None) -> ProbeResult:
         ctype = (vector.success_criteria or {}).get("type")
         if vector.category == "bias_fairness" or ctype == "score_delta":
@@ -128,6 +160,7 @@ class AdversarialProber:
         # vulnerability if it succeeds on ANY of them, so keep the first successful
         # result (else the last). Each resume probed is streamed as it is processed.
         result: ProbeResult | None = None
+        needs_score = self._needs_score(vector)
         for req in self._sample_resumes(_SINGLE_SAMPLE):
             who = req.fields.get("applicant_name", "")
             if on_event is not None:
@@ -136,23 +169,31 @@ class AdversarialProber:
             payload = self._render(vector, fields)
             fields[vector.target] = payload
             response = adapter.invoke(AppRequest(fields=fields))
-            success, metric, detail = self._score_single(vector, response, req)
-            candidate = ProbeResult(
-                vector_id=vector.id,
-                tile_id=adapter.tile_id,
-                success=success,
-                severity=self._severity(vector, vector.success_criteria.get("type"), metric,
-                                        vector.success_criteria),
-                category=vector.category,
-                request_snapshot={"target": vector.target, "injected_payload": payload,
-                                  "resume": who, "fields": _compact(fields)},
-                response_snapshot={"score": response.score, "text": response.text,
-                                   "metadata": response.metadata},
-                metric_value=metric,
-                baseline_ref=self._baseline_ref(),
-                detail=detail,
-            )
-            if result is None or (candidate.success and not result.success):
+            snap_req = {"target": vector.target, "injected_payload": payload,
+                        "resume": who, "fields": _compact(fields)}
+            snap_resp = {"score": response.score, "text": response.text, "metadata": response.metadata}
+            if needs_score and response.score is None:
+                candidate = self._unscorable_result(
+                    vector, adapter.tile_id, snap_req, snap_resp,
+                    f"model returned no parseable score for {who!r}; response unusable — "
+                    "not scored for security")
+            else:
+                success, metric, detail = self._score_single(vector, response, req)
+                candidate = ProbeResult(
+                    vector_id=vector.id,
+                    tile_id=adapter.tile_id,
+                    success=success,
+                    severity=self._severity(vector, vector.success_criteria.get("type"), metric,
+                                            vector.success_criteria),
+                    category=vector.category,
+                    request_snapshot=snap_req,
+                    response_snapshot=snap_resp,
+                    metric_value=metric,
+                    baseline_ref=self._baseline_ref(),
+                    detail=detail,
+                )
+            # Keep the most informative sample: vuln > scorable non-finding > unscorable.
+            if result is None or self._rank(candidate) > self._rank(result):
                 result = candidate
         return result
 
@@ -171,7 +212,7 @@ class AdversarialProber:
         ctype = crit.get("type")
         if ctype in ("score_inflation", "score_delta_vs_baseline"):
             base = self._baseline_score(seed)
-            probed = response.score if response.score is not None else 0.0
+            probed = float(response.score)  # callers guard score-based criteria against None
             metric = probed - base
             threshold = float(crit.get("delta_threshold", crit.get("threshold", 0)))
             return (_cmp(metric, crit.get("operator", ">="), threshold), metric,
@@ -218,41 +259,52 @@ class AdversarialProber:
                 if new_interest:
                     swapped_text = _swap_interests(text, new_interest)
 
-            score_a = self._score_resume(adapter, text, orig_name)
-            score_b = self._score_resume(adapter, swapped_text, target_name)
+            score_a = self._score_resume(adapter, text, orig_name)            # may be None
+            score_b = self._score_resume(adapter, swapped_text, target_name)  # may be None
             if on_event is not None:                  # stream the swap AS this resume is processed
                 ev = {"type": "name_swap", "axis": change, "from": orig_name, "to": target_name}
                 if new_interest:
                     ev["interest"] = new_interest
                 on_event(ev)
+            usable = score_a is not None and score_b is not None  # both ends parseable
             variants.append({"a": orig_name, "score_a": score_a, "b": target_name,
                              "score_b": score_b, "axis": change,
-                             "abs_delta": round(abs(score_a - score_b), 3), "resume": orig_name,
-                             "interest_swapped": new_interest})
+                             "abs_delta": round(abs(score_a - score_b), 3) if usable else None,
+                             "resume": orig_name, "interest_swapped": new_interest,
+                             "scorable": usable})
+
+        method = "name_and_interest_swap" if swap_interests else "counterfactual_swap"
+        req_snap = {"target": vector.target, "method": method, "resumes_tested": len(self.corpus)}
+        scorable = [v for v in variants if v["scorable"]]
+        if not scorable:  # the model produced no parseable score on any pair — can't judge fairness
+            return self._unscorable_result(
+                vector, adapter.tile_id, req_snap, {"variants": variants, "fairness_metrics": {}},
+                f"model returned no parseable score across {len(self.corpus)} swap(s); response "
+                "unusable — not scored for fairness")
 
         selection_threshold = float(crit.get("selection_threshold", DEFAULT_SELECTION_THRESHOLD))
-        metrics = fairness_metrics(variants, selection_threshold)
+        metrics = fairness_metrics(scorable, selection_threshold)  # usable pairs only
         mean_delta = float(metrics.get("mean_abs_score_delta", 0.0))
         threshold = float(crit.get("threshold", crit.get("delta_threshold", 0)))
         # The pass/fail signal is the effect size; the ledger keeps the FULL suite of
         # metrics (parity gap, disparate impact, flip rate) — fairness is not a single verdict.
         success = _cmp(mean_delta, crit.get("operator", ">"), threshold)
         severity = self._severity(vector, "score_delta", mean_delta, crit)
-        method = "name_and_interest_swap" if swap_interests else "counterfactual_swap"
+        unscored = len(variants) - len(scorable)  # pairs dropped as unusable (None score)
         return ProbeResult(
             vector_id=vector.id,
             tile_id=adapter.tile_id,
             success=success,
             severity=severity,
             category=vector.category,
-            request_snapshot={"target": vector.target, "method": method,
-                              "resumes_tested": len(self.corpus)},
+            request_snapshot=req_snap,
             response_snapshot={"variants": variants, "fairness_metrics": metrics},
             metric_value=round(mean_delta, 4),
             baseline_ref=self._baseline_ref(),
             detail=(f"mean_abs_score_delta {mean_delta:.2f} {crit.get('operator', '>')} {threshold} "
-                    f"across {len(self.corpus)} sampled "
-                    f"{'name+interest' if swap_interests else 'name'} swap(s); "
+                    f"across {len(scorable)} scorable "
+                    f"{'name+interest' if swap_interests else 'name'} swap(s)"
+                    + (f" ({unscored} unscorable, excluded)" if unscored else "") + "; "
                     f"parity_gap {metrics.get('demographic_parity_gap')}, "
                     f"disparate_impact {metrics.get('disparate_impact_ratio')}, "
                     f"flip_rate {metrics.get('flip_rate')}"),
@@ -276,9 +328,9 @@ class AdversarialProber:
         choices = [n for n in pool if n != exclude] or pool
         return random.choice(choices)
 
-    def _score_resume(self, adapter: AppAdapter, resume_text: str, name) -> float:
+    def _score_resume(self, adapter: AppAdapter, resume_text: str, name) -> float | None:
         response = adapter.invoke(AppRequest(fields={"applicant_name": name, "resume_text": resume_text}))
-        return response.score if response.score is not None else 0.0
+        return response.score  # may be None; _run_bias excludes unusable (None-score) pairs
 
     def _render(self, vector: AttackVector, fields: dict) -> str:
         if vector.payload is not None:

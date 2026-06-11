@@ -142,6 +142,16 @@ ordinary applicant resumes). The profiler only *reads* the responses and
 accumulates statistics; the tile is never asked to do anything outside its normal
 job.
 
+> **Passive means passive — exactly one call per request, no retries or hardening.**
+> The baseline must use the *same* model behavior the probes will later see; DevSecBuddy
+> takes no corrective action here. If the model returns no parseable score, that response
+> simply contributes no number to the baseline (you can't average a non-number) — it is not
+> re-asked. A model too weak to even return a score is *a priori* unusable, and the active
+> phase makes that visible: probes whose response can't be scored are flagged
+> **`unscorable_response`** (an info-level "couldn't be evaluated" finding) rather than being
+> coerced into a fabricated score — see Phase 2. This keeps un-robust scoring honest:
+> false positives that stem from a weak model are surfaced as such, not hidden.
+
 ### What a baseline captures
 
 `build` finalizes the accumulated observations into a `Baseline`:

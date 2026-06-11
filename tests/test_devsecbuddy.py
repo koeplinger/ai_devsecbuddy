@@ -241,7 +241,7 @@ def test_probe_emits_progress_events(vectors, tmp_path):
 
 
 class _ScriptedAdapter:
-    """Adapter stub whose invoke() returns a scripted sequence of scores (None / 0 = malformed)."""
+    """Adapter stub whose invoke() returns a scripted sequence of scores (None = unparseable)."""
 
     tile_id = "tile-test"
 
@@ -254,37 +254,53 @@ class _ScriptedAdapter:
 
         s = self._scores[self.calls] if self.calls < len(self._scores) else None
         self.calls += 1
-        text = f"SCORE: {int(s)}/100\nok." if s is not None else "(the model errored — no score line)"
+        text = f"SCORE: {int(s)}/100\nok." if s is not None else "(the model returned no score line)"
         return AppResponse(score=s, text=text, metadata={})
 
 
-def test_baseline_retries_malformed_until_valid_score():
-    # the learning phase re-asks past an unparseable None and a degenerate 0, and only the
-    # real score (73) feeds the baseline — the 0/None never pollute it.
-    adapter = _ScriptedAdapter([None, 0.0, 73.0])
+def test_baseline_observe_is_strictly_passive_no_retries():
+    # passive means passive: exactly ONE invocation per resume, whatever the model returns.
+    # A None (unparseable) score is simply not averaged — no retry, no 0 coercion.
+    adapter = _ScriptedAdapter([55.0, None, 60.0])
     profiler = BaselineProfiler()
-    events: list[dict] = []
-    profiler.observe(adapter, [AppRequest(fields={"applicant_name": "Ada", "resume_text": "x"})],
-                     on_event=events.append)
+    corpus = [AppRequest(fields={"applicant_name": n, "resume_text": f"resume-{n}"})
+              for n in ("A", "B", "C")]
+    profiler.observe(adapter, corpus)
     baseline = profiler.build("tile-test")
-    assert adapter.calls == 3  # initial + 2 retries, stopped on the valid 73
-    assert baseline.score_stats["__overall__"]["mean"] == 73.0
-    assert [e["attempt"] for e in events if e["type"] == "learning_retry"] == [1, 2]
+    assert adapter.calls == 3                                     # one call per resume, no retries
+    assert baseline.sample_count == 3                            # all three observed
+    assert baseline.score_stats["__overall__"]["mean"] == 57.5   # mean of 55 & 60 (the None ignored)
 
 
-def test_baseline_gives_up_after_three_retries():
-    # always malformed -> at most 3 retries (4 calls), then move on; the baseline is left
-    # un-polluted (no entry) rather than recording a bogus 0, and the sample still counts.
-    adapter = _ScriptedAdapter([None, None, None, None, None])
-    profiler = BaselineProfiler()
-    events: list[dict] = []
-    profiler.observe(adapter, [AppRequest(fields={"applicant_name": "Ada", "resume_text": "x"})],
-                     on_event=events.append)
-    baseline = profiler.build("tile-test")
-    assert adapter.calls == 4  # initial + 3 retries
-    assert "__overall__" not in baseline.score_stats
-    assert baseline.sample_count == 1
-    assert len([e for e in events if e["type"] == "learning_retry"]) == 3
+def test_unscorable_responses_are_flagged_not_counted_as_vulnerabilities(vectors, tmp_path):
+    # a model too weak to return a parseable score: score-based probes are flagged
+    # `unscorable_response` (info) instead of being coerced into false security findings.
+    from devsecbuddy.models import EngineResponse
+
+    class _JunkEngine:
+        name, model = "junk", "junk-model-1"
+
+        def complete(self, system, prompt, params=None):
+            return EngineResponse(text="(the model returned gibberish — no score line)",
+                                  model=self.model, metadata={})
+
+        def info(self):
+            return {"name": self.name, "model": self.model, "models": [], "deterministic": True}
+
+    adapter = TILES["tile-unguarded"](_JunkEngine())
+    ledger = Ledger(str(tmp_path / "ledger.db"))
+    try:
+        out = run_assessment(adapter, vectors, CLEAN_CORPUS, ledger=ledger, engine_name="junk")
+    finally:
+        ledger.close()
+    summary, findings = out["summary"], out["findings"]
+    assert summary["vulnerabilities_found"] == 0                 # nothing manufactured from junk
+    assert summary["unscorable"] >= 1                            # score-based probes flagged
+    unscorable = [f for f in findings if f.category == "unscorable_response"]
+    assert unscorable and all(f.severity == "info" and f.owasp_ref == "N/A" for f in unscorable)
+    assert summary["by_category"].get("unscorable_response", 0) == len(unscorable)
+    # the unscorable run is not a clean PASS, but it raised zero real vulnerabilities
+    assert all(f.category != "bias_fairness" for f in findings)  # bias couldn't be scored either
 
 
 def test_findings_dedupe_within_run(vectors, tmp_path):

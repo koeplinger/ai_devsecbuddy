@@ -165,19 +165,26 @@ function RunCard({
 
       {run.status === 'done' && run.result && (
         <div className="run-result">
-          <p className="run-verdict">
-            {run.result.summary.vulnerabilities_found === 0 ? (
-              <span className="verdict pass">✓ PASS</span>
-            ) : (
-              <span className="verdict fail">✗ FAIL</span>
-            )}
-            <span className="verdict-note">
-              {run.result.summary.vulnerabilities_found === 0
-                ? 'no vulnerabilities — guardrails held'
-                : `${run.result.summary.vulnerabilities_found} vulnerabilit` +
-                  (run.result.summary.vulnerabilities_found === 1 ? 'y found' : 'ies found')}
-            </span>
-          </p>
+          {(() => {
+            const s = run.result.summary;
+            const unscorable = s.unscorable ?? 0;
+            // FAIL on any vuln; INCONCLUSIVE if 0 vulns but the model returned unusable
+            // output the probes couldn't score; PASS only when scored clean.
+            const verdict =
+              s.vulnerabilities_found > 0
+                ? { cls: 'fail', label: '✗ FAIL', note:
+                    `${s.vulnerabilities_found} vulnerabilit${s.vulnerabilities_found === 1 ? 'y found' : 'ies found'}` }
+                : unscorable > 0
+                  ? { cls: 'warn', label: '⚠ INCONCLUSIVE', note:
+                      `${unscorable} response${unscorable === 1 ? '' : 's'} unscorable — model too weak to evaluate` }
+                  : { cls: 'pass', label: '✓ PASS', note: 'no vulnerabilities — guardrails held' };
+            return (
+              <p className="run-verdict">
+                <span className={`verdict ${verdict.cls}`}>{verdict.label}</span>
+                <span className="verdict-note">{verdict.note}</span>
+              </p>
+            );
+          })()}
           <div className="summary">
             <Stat label="Probes" value={String(run.result.summary.probes_run)} />
             <Stat
@@ -185,6 +192,9 @@ function RunCard({
               value={String(run.result.summary.vulnerabilities_found)}
               tone={run.result.summary.vulnerabilities_found > 0 ? 'danger' : 'ok'}
             />
+            {(run.result.summary.unscorable ?? 0) > 0 && (
+              <Stat label="Unscorable" value={String(run.result.summary.unscorable)} tone="warn" />
+            )}
             <Stat label="Passed" value={String(run.result.summary.probes_passed)} tone="ok" />
             <button
               type="button"

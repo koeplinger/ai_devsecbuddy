@@ -91,10 +91,16 @@ def _engine_model(adapter) -> str | None:
 
 
 def _summarize(results, findings) -> dict:
+    # `unscorable_response` findings are flags (the model couldn't be evaluated), not vulns:
+    # keep them out of vulnerabilities_found, and count probes that couldn't be scored apart
+    # from those that genuinely passed.
+    vulns = [f for f in findings if f.category != "unscorable_response"]
+    unscorable = [f for f in findings if f.category == "unscorable_response"]
     return {
         "probes_run": len(results),
-        "vulnerabilities_found": len(findings),
-        "probes_passed": sum(1 for r in results if not r.success),
+        "vulnerabilities_found": len(vulns),
+        "unscorable": len(unscorable),
+        "probes_passed": sum(1 for r in results if not r.success and not r.unscorable),
         "by_severity": dict(Counter(f.severity for f in findings)),
         "by_category": dict(Counter(f.category for f in findings)),
     }

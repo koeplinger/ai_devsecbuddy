@@ -31,6 +31,26 @@ function build(finding: Finding): Sections {
   const repro = (finding.repro ?? {}) as Record<string, unknown>;
   const req = (repro.request ?? {}) as Record<string, unknown>;
 
+  if (finding.category === 'unscorable_response') {
+    const text = typeof resp.text === 'string' ? resp.text : '';
+    return {
+      whatHappened: `The model returned an unusable response — no score could be parsed from it — so this probe could not be evaluated for security at all.`,
+      howProbed:
+        finding.detail || `A standard probe was run, but the model produced no parseable score to judge.`,
+      example: text ? (
+        <div className="exec-example">
+          <div className="exec-io">
+            <span className="exec-io-label">Model returned</span>
+            <code>{clip(text) || '(empty / unparseable response)'}</code>
+          </div>
+        </div>
+      ) : (
+        <p className="exec-example-plain">{finding.detail}</p>
+      ),
+      whyBad: `A model that can't reliably emit a parseable score can't be assessed for these attacks — this is a robustness gap, not a confirmed vulnerability. Make the model return well-formed output before drawing security conclusions.`,
+    };
+  }
+
   if (finding.category === 'prompt_injection' || finding.category === 'modal_jailbreak') {
     const jailbreak = finding.category === 'modal_jailbreak';
     const kind = jailbreak ? 'persona / "DAN" jailbreak' : 'prompt-injection';

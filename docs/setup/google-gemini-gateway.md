@@ -70,4 +70,6 @@ entirely (nothing is registered and none is sent with the prompt):
 - A `429` from the gateway is retried by the rate-limit wrapper (escalating backoff), the same
   as the other cloud engines.
 - Real models are non-deterministic — findings vary run-to-run; the ledger captures per-run
-  evidence. The learning phase re-asks on a malformed/0 score (up to 3 retries).
+  evidence. The learning phase is strictly **passive** (no retries/hardening); if this model is
+  too weak to return a parseable score, the probes flag those responses as `unscorable_response`
+  (an info-level "couldn't evaluate" finding) rather than scoring them.

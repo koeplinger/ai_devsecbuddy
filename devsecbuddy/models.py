@@ -10,7 +10,12 @@ from dataclasses import dataclass, field
 
 # --- Shared vocabularies (binding; docs/attack-library.md §1.5, §2) -----------
 
-CATEGORIES = ("prompt_injection", "modal_jailbreak", "data_exfiltration", "bias_fairness")
+# Security categories, plus `unscorable_response` — NOT a vulnerability: the model returned
+# output with no parseable score, so the probe could not be evaluated for security at all.
+# It is surfaced so a model too weak to even be assessed is visible rather than silently
+# coerced into false findings.
+CATEGORIES = ("prompt_injection", "modal_jailbreak", "data_exfiltration", "bias_fairness",
+              "unscorable_response")
 SEVERITIES = ("info", "low", "medium", "high", "critical")
 STATUSES = ("open", "triaged", "mitigated", "accepted_risk", "false_positive")
 
@@ -20,6 +25,7 @@ CATEGORY_OWASP = {
     "modal_jailbreak": "LLM01",
     "data_exfiltration": "LLM06",
     "bias_fairness": "LLM09",
+    "unscorable_response": "N/A",  # a quality/robustness flag, not a security finding
 }
 
 # CWE applied to injection-class findings (docs/vulnerability-ledger.md §8)
@@ -112,6 +118,8 @@ class ProbeResult:
     metric_value: float | None = None
     baseline_ref: str | None = None
     detail: str = ""
+    unscorable: bool = False     # the model's response was unusable (no parseable score) ->
+    #                              flagged, NOT scored for security (category unscorable_response)
 
 
 @dataclass

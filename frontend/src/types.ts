@@ -75,6 +75,7 @@ export interface Finding {
 export interface RunSummary {
   probes_run: number;
   vulnerabilities_found: number;
+  unscorable?: number; // probes the model couldn't be scored for (unusable response) — not vulns
   probes_passed: number;
   by_severity: Record<string, number>;
   by_category: Record<string, number>;
@@ -143,7 +144,6 @@ export type RunEvent =
       severity: string;
     }
   | { type: 'learning'; index: number; total: number; name: string }
-  | { type: 'learning_retry'; index: number; total: number; name: string; attempt: number }
   | { type: 'name_swap'; axis: string; from: string; to: string; interest?: string }
   | { type: 'probe_target'; vector_id: string; name: string }
   | { type: 'rate_limited'; attempt: number; wait_s: number; remaining_s: number; engine?: string }

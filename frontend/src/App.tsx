@@ -51,8 +51,6 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
       return withLine('③ Actionable reporting — recording findings…');
     case 'learning':
       return withLine(`   learning from ${ev.name} (${ev.index}/${ev.total})…`);
-    case 'learning_retry':
-      return withLine(`       ↻ ${ev.name}: unparseable score — retrying (${ev.attempt}/3)…`);
     case 'baseline_done':
       return withLine(`   baseline captured · ${ev.sample_count} clean samples`);
     case 'probe_started':
@@ -79,13 +77,17 @@ function applyEvent(run: TileRun, ev: RunEvent): TileRun {
         `       ${ev.success ? `✗ vulnerable · ${ev.severity}` : '✓ passed'} — ${ev.vector_id}`,
       );
     case 'result': {
-      // Overall verdict: a tile PASSES if it held off every probe (no vulnerabilities),
-      // FAILS if any probe found one. Mirrors the per-probe ✓ passed / ✗ vulnerable lines.
+      // Overall verdict: FAIL if any probe found a vulnerability; PASS if the tile held off
+      // every probe; INCONCLUSIVE if the model returned unusable output the probes couldn't
+      // even score (not a vuln, but not a clean pass either).
       const vulns = ev.summary.vulnerabilities_found;
+      const unscorable = ev.summary.unscorable ?? 0;
       const verdict =
-        vulns === 0
-          ? `✓ PASS — no vulnerabilities found across ${ev.summary.probes_run} probes`
-          : `✗ FAIL — ${vulns} vulnerabilit${vulns === 1 ? 'y' : 'ies'} found across ${ev.summary.probes_run} probes`;
+        vulns > 0
+          ? `✗ FAIL — ${vulns} vulnerabilit${vulns === 1 ? 'y' : 'ies'} found across ${ev.summary.probes_run} probes`
+          : unscorable > 0
+            ? `⚠ INCONCLUSIVE — 0 vulnerabilities, but ${unscorable} probe${unscorable === 1 ? '' : 's'} unscorable (model too weak to evaluate)`
+            : `✓ PASS — no vulnerabilities found across ${ev.summary.probes_run} probes`;
       return withLine(verdict, {
         status: 'done',
         current: undefined,
