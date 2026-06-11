@@ -13,16 +13,20 @@ Three adapters implement the interface:
 | **`MockEngine`** | none (built-in) | **implemented first, the default** | **offline** | deterministic |
 | **`AnthropicEngine`** | Anthropic (Claude) | implemented + live-validated | online | non-deterministic |
 | **`VertexEngine`** | Google Vertex AI (Gemini) | implemented + live-validated | online | non-deterministic |
+| **`GeminiProxyEngine`** | Google Gemini via an API gateway | implemented (M6) | online | non-deterministic |
 
-> **Account note (read this first).** `AnthropicEngine` and `VertexEngine` are
-> **implemented and live** (roadmap M6) but need **credentials** to run — sign-up
-> walkthroughs are in [docs/setup/anthropic-signup.md](setup/anthropic-signup.md) and
-> [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md). Until those are
+> **Account note (read this first).** The cloud engines are **implemented and live**
+> (roadmap M6) but need **credentials** to run — sign-up walkthroughs are in
+> [docs/setup/anthropic-signup.md](setup/anthropic-signup.md),
+> [docs/setup/google-vertex-signup.md](setup/google-vertex-signup.md), and
+> [docs/setup/google-gemini-gateway.md](setup/google-gemini-gateway.md). Until those are
 > set the backend reports them as `configured: false` and a run against them returns
 > HTTP **503**. **Everything in the demo runs today on `MockEngine`** — no keys, no
-> project, no network. The two cloud engines deliberately use **different providers
-> and SDKs**: `AnthropicEngine` runs **Claude directly against the Anthropic API**, and
-> `VertexEngine` runs **Google's Gemini on GCP Vertex AI** (the `google-genai` SDK).
+> project, no network. The cloud engines deliberately use **different providers and
+> access paths**: `AnthropicEngine` runs **Claude directly against the Anthropic API**,
+> `VertexEngine` runs **Google's Gemini on GCP Vertex AI** (the `google-genai` SDK, gcloud
+> auth), and `GeminiProxyEngine` reaches **Gemini through a URL/API-key gateway** (no SDK,
+> just `urllib`) — the "third way" when you have a gateway URL + key instead of gcloud login.
 
 Related docs: [tiles.md](tiles.md) (the four resume-scorer tiles each adapter can
 back), [architecture.md](architecture.md) (where engine selection lives in the
@@ -67,7 +71,7 @@ class EngineResponse:
     metadata: dict                    # provider extras, safety flags, etc.
 
 class AIEngine(Protocol):
-    name: str                         # "mock" | "anthropic" | "vertex"
+    name: str                         # "mock" | "anthropic" | "vertex" | "gemini"
 
     def complete(
         self,
@@ -83,7 +87,7 @@ class AIEngine(Protocol):
 
 | Member | Purpose |
 | --- | --- |
-| `name` | Stable engine id: `"mock"`, `"anthropic"`, or `"vertex"`. This is the value recorded in the ledger's `runs.engine_name` column. |
+| `name` | Stable engine id: `"mock"`, `"anthropic"`, `"vertex"`, or `"gemini"`. This is the value recorded in the ledger's `runs.engine_name` column. |
 | `complete(system, prompt, params)` | The single inference call. Takes a **system / instruction prompt** and the **user-turn content** separately, plus optional `EngineParams`, and returns an `EngineResponse`. |
 | `info()` | Returns a capability dictionary: model name, supported features, and the **determinism flag** (`info()["deterministic"]`). |
 
@@ -118,6 +122,7 @@ flowchart LR
   Engine --> Mock["MockEngine — offline, deterministic"]
   Engine --> Anthropic["AnthropicEngine — Claude (Anthropic API)"]
   Engine --> Vertex["VertexEngine — Gemini (GCP Vertex AI)"]
+  Engine --> GeminiProxy["GeminiProxyEngine — Gemini (URL/API-key gateway)"]
   Mock -.default.-> Tile
 ```
 

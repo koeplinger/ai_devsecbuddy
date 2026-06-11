@@ -10,7 +10,14 @@ from __future__ import annotations
 
 from .adapters import AppAdapter
 from .attack_library import DEFAULT_VECTORS_DIR, load_vectors
-from .engines import AIEngine, AnthropicEngine, MockEngine, VertexEngine, get_engine
+from .engines import (
+    AIEngine,
+    AnthropicEngine,
+    GeminiProxyEngine,
+    MockEngine,
+    VertexEngine,
+    get_engine,
+)
 from .fairness import DEFAULT_SELECTION_THRESHOLD, fairness_metrics
 from .ledger import DEFAULT_DB_PATH, Ledger
 from .models import (
@@ -38,7 +45,7 @@ __all__ = [
     # contracts
     "AppAdapter", "AIEngine",
     # engines
-    "MockEngine", "AnthropicEngine", "VertexEngine", "get_engine",
+    "MockEngine", "AnthropicEngine", "VertexEngine", "GeminiProxyEngine", "get_engine",
     # data models
     "EngineParams", "EngineResponse", "AppRequest", "AppResponse", "AttackVector",
     "Baseline", "ProbeResult", "Finding",

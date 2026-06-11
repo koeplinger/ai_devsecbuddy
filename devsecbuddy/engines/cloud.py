@@ -1,12 +1,18 @@
-"""Cloud engine adapters — two providers, two model families, two SDKs.
+"""Cloud engine adapters — three access paths to two model families.
 
 * ``AnthropicEngine`` runs **Claude directly against the Anthropic API** (the
   Anthropic SDK, ``anthropic.Anthropic``) using the **Messages API**.
 * ``VertexEngine`` runs **Google's Gemini models on GCP Vertex AI** (the
-  ``google-genai`` SDK in Vertex mode) using the **generate_content API**.
+  ``google-genai`` SDK in Vertex mode) using the **generate_content API**, with
+  gcloud / Application-Default-Credentials auth.
+* ``GeminiProxyEngine`` runs **Gemini through a URL-based API gateway** — plain HTTP
+  with an API key in a header (no SDK, just ``urllib``). This is the "third way" to
+  reach Google's models when you have a gateway URL + key instead of gcloud login.
+  All connection details are env-configurable (``GEMINI_*``); gateway-specific extras
+  (cost attribution) are optional (``GEMINI_CUSTOM_*``).
 
-So "anthropic" = Claude-direct and "vertex" = Gemini-on-Google — each engine uses
-its provider's own native SDK and request/response shape. Both are wired in M6.
+So "anthropic" = Claude-direct, "vertex" = Gemini-via-gcloud, "gemini" = Gemini-via-gateway —
+each uses its provider's own request/response shape. All are wired in M6.
 
 Credentials are read from the environment and the SDK clients are imported lazily,
 so importing this module never requires the SDKs or any keys. ``complete()`` raises
@@ -320,3 +326,189 @@ class VertexEngine:
     def complete(self, system: str, prompt: str, params: EngineParams | None = None) -> EngineResponse:
         return _gemini_complete(self._get_client(), self.model, system, prompt,
                                 params or EngineParams(), self.project, self.region)
+
+
+# --- Gemini via a URL-based API gateway (urllib, no SDK) ----------------------
+
+# Defaults for the gateway. The base URL is deployment-internal (and this repo is public),
+# so it has *no* default — it must come from the environment. The URL *paths* below are
+# generic API routes (not secrets) and are safe to default; override them per deployment.
+GEMINI_GATEWAY_DEFAULTS = {
+    "api_key_header": "x-api-key",          # GEMINI_API_KEY_HEADER
+    "prompt_path": "/api/v1/gemini/prompt",  # GEMINI_PROMPT_URL
+    "location": "us-central1",               # GEMINI_LOCATION
+    "model": GEMINI_DEFAULT_MODEL,           # GEMINI_MODEL_NAME
+    "timeout_s": 60.0,                       # GEMINI_TIMEOUT_SECONDS
+    "cost_tag_path": "/api/v1/tag",          # GEMINI_CUSTOM_COST_TAG_URL
+}
+
+
+def _gateway_text(body: str) -> tuple[str, dict | None]:
+    """Pull the model's text out of the gateway's JSON response. The gateway's envelope
+    isn't pinned by a public spec, so try the common shapes and fall back to the raw body
+    (so a ``SCORE: NN/100`` line is still parseable even from an unexpected wrapper)."""
+    import json
+
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return body, None
+    if isinstance(data, str):
+        return data, None
+    if not isinstance(data, dict):
+        return body, None
+    # standard Gemini generateContent envelope: candidates[].content.parts[].text
+    for cand in data.get("candidates") or []:
+        parts = ((cand or {}).get("content") or {}).get("parts") or []
+        joined = "".join(p.get("text", "") for p in parts if isinstance(p, dict))
+        if joined:
+            return joined, data
+    # flat fields a gateway might use
+    for key in ("text", "response", "output", "completion", "content", "result", "answer", "message"):
+        val = data.get(key)
+        if isinstance(val, str) and val:
+            return val, data
+    # one level of nesting, e.g. {"response": {"text": ...}}
+    for key in ("response", "result", "data", "prediction"):
+        inner = data.get(key)
+        if isinstance(inner, dict):
+            for k2 in ("text", "output", "content", "completion", "answer"):
+                if isinstance(inner.get(k2), str) and inner[k2]:
+                    return inner[k2], data
+    return body, data
+
+
+class GeminiProxyEngine:
+    """Google Gemini via a URL-based API gateway (API key in a header), as opposed to
+    Vertex's gcloud/ADC auth. Talks plain HTTP with ``urllib`` — no vendor SDK.
+
+    Config (env, ``GEMINI_*``): ``GEMINI_BASE_URL`` (required, deployment-internal — no
+    default), ``GEMINI_API_KEY`` (blank by default), ``GEMINI_API_KEY_HEADER``,
+    ``GEMINI_PROMPT_URL``, ``GEMINI_LOCATION``, ``GEMINI_MODEL_NAME``,
+    ``GEMINI_TIMEOUT_SECONDS``. Gateway-specific extras (``GEMINI_CUSTOM_*``, optional):
+    ``GEMINI_CUSTOM_COST_TAG`` (a cost-attribution tag; when set it is registered once and
+    sent with each prompt) and ``GEMINI_CUSTOM_COST_TAG_URL`` (where to register it).
+    """
+
+    name = "gemini"
+
+    def __init__(self, *, base_url: str | None = None, api_key: str | None = None,
+                 model: str | None = None, location: str | None = None,
+                 api_key_header: str | None = None, prompt_path: str | None = None,
+                 timeout_s: float | None = None, cost_tag: str | None = None,
+                 cost_tag_path: str | None = None, transport=None, **kwargs):
+        env = os.environ.get
+        d = GEMINI_GATEWAY_DEFAULTS
+        # --- standard gateway config (GEMINI_*) ---
+        self.base_url = (base_url if base_url is not None else env("GEMINI_BASE_URL", "")).rstrip("/")
+        self.api_key = api_key if api_key is not None else env("GEMINI_API_KEY", "")
+        self.api_key_header = api_key_header or env("GEMINI_API_KEY_HEADER") or d["api_key_header"]
+        self.model = model or env("GEMINI_MODEL_NAME") or d["model"]
+        self.location = location or env("GEMINI_LOCATION") or d["location"]
+        self.prompt_path = prompt_path or env("GEMINI_PROMPT_URL") or d["prompt_path"]
+        self.timeout_s = float(
+            timeout_s if timeout_s is not None else (env("GEMINI_TIMEOUT_SECONDS") or d["timeout_s"])
+        )
+        # --- gateway-specific extras (GEMINI_CUSTOM_*), optional ---
+        self.cost_tag = cost_tag if cost_tag is not None else env("GEMINI_CUSTOM_COST_TAG", "")
+        self.cost_tag_path = cost_tag_path or env("GEMINI_CUSTOM_COST_TAG_URL") or d["cost_tag_path"]
+        # injectable HTTP for tests: (url, headers, payload, timeout_s) -> (status, body_text)
+        self._transport = transport
+        self._cost_tag_ready = False
+        self._config = kwargs
+
+    def configured(self) -> bool:
+        return bool(self.base_url and self.api_key) or self._transport is not None
+
+    def info(self) -> dict:
+        return {
+            "name": self.name,
+            "provider": "Google Gemini (API gateway)",
+            "deterministic": False,
+            "implemented": True,
+            "configured": self.configured(),
+            "model": self.model,
+            "models": [dict(m) for m in GEMINI_MODELS],
+            "location": self.location,
+            "requires": ["GEMINI_BASE_URL", "GEMINI_API_KEY (in the GEMINI_API_KEY_HEADER header)"],
+            "roadmap": "M6",
+        }
+
+    # -- HTTP -------------------------------------------------------------------
+    def _headers(self) -> dict:
+        return {"content-type": "application/json", self.api_key_header: self.api_key}
+
+    def _url(self, path: str) -> str:
+        if path.startswith(("http://", "https://")):  # allow a full URL override
+            return path
+        return f"{self.base_url}{path if path.startswith('/') else '/' + path}"
+
+    def _post_json(self, path: str, payload: dict) -> tuple[int, str]:
+        """POST JSON and return (status, body_text). Raises urllib HTTPError on 4xx/5xx —
+        whose ``.code`` the rate-limit wrapper reads to detect a 429."""
+        if self._transport is not None:
+            return self._transport(self._url(path), self._headers(), payload, self.timeout_s)
+        import json
+        from urllib import request
+
+        req = request.Request(
+            self._url(path),
+            data=json.dumps(payload).encode("utf-8"),
+            headers=self._headers(),
+            method="POST",
+        )
+        with request.urlopen(req, timeout=self.timeout_s) as response:  # noqa: S310 (config'd URL)
+            return response.status, response.read().decode("utf-8")
+
+    def _ensure_cost_tag(self) -> None:
+        """Register the cost tag once per process (idempotent — an 'already exists'
+        response is fine). No-op when no cost tag is configured."""
+        if not self.cost_tag or self._cost_tag_ready:
+            return
+        from urllib import error
+
+        try:
+            self._post_json(self.cost_tag_path, {"cost_tag": self.cost_tag})
+        except error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace") if hasattr(exc, "read") else ""
+            if "already exists" not in body.lower():
+                raise EngineNotConfigured(
+                    f"cost-tag registration failed ({exc.code}) at {self.cost_tag_path}: "
+                    f"{body[:200]}"
+                ) from exc
+        self._cost_tag_ready = True
+
+    def complete(self, system: str, prompt: str, params: EngineParams | None = None) -> EngineResponse:
+        if not self.configured():
+            raise EngineNotConfigured(
+                "GEMINI_BASE_URL and GEMINI_API_KEY are required — see "
+                "docs/setup/google-gemini-gateway.md."
+            )
+        params = params or EngineParams()
+        model = (params.extra or {}).get("model", self.model)  # optional per-request override
+        self._ensure_cost_tag()
+
+        # The gateway takes a single prompt (no separate system field), so fold the rubric in.
+        full_prompt = f"{system}\n\n{prompt}" if system else prompt
+        payload: dict = {"prompt": full_prompt, "model_name": model, "location": self.location}
+        if self.cost_tag:
+            payload["cost_tag"] = self.cost_tag
+
+        started = time.perf_counter()
+        status, body = self._post_json(self.prompt_path, payload)
+        latency_ms = round((time.perf_counter() - started) * 1000, 2)
+        text, _data = _gateway_text(body)
+        return EngineResponse(
+            text=text,
+            model=model,
+            finish_reason=None,
+            usage=None,
+            raw={"status": status, "body": body[:2000]},  # body preview aids first-run debugging
+            latency_ms=latency_ms,
+            metadata={
+                "deterministic": False,
+                "provider": "gemini",
+                "location": self.location,
+                "http_status": status,
+            },
+        )

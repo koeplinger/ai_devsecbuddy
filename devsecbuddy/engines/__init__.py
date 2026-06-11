@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from ..models import EngineParams, EngineResponse
-from .cloud import AnthropicEngine, EngineNotConfigured, VertexEngine
+from .cloud import AnthropicEngine, EngineNotConfigured, GeminiProxyEngine, VertexEngine
 from .mock import MockEngine
 from .retry import RateLimitRetryEngine, is_rate_limit_error
 
@@ -25,7 +25,8 @@ class AIEngine(Protocol):
         ...
 
 
-_ENGINES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine}
+_ENGINES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine,
+            "gemini": GeminiProxyEngine}
 
 
 def get_engine(name: str | None = None, **kwargs) -> AIEngine:
@@ -41,5 +42,5 @@ def get_engine(name: str | None = None, **kwargs) -> AIEngine:
         raise ValueError(f"Unknown engine {name!r}; choose one of {sorted(_ENGINES)}") from None
 
 
-__all__ = ["AIEngine", "MockEngine", "AnthropicEngine", "VertexEngine", "get_engine",
-           "EngineNotConfigured", "RateLimitRetryEngine", "is_rate_limit_error"]
+__all__ = ["AIEngine", "MockEngine", "AnthropicEngine", "VertexEngine", "GeminiProxyEngine",
+           "get_engine", "EngineNotConfigured", "RateLimitRetryEngine", "is_rate_limit_error"]

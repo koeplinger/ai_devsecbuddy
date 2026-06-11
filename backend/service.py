@@ -19,12 +19,14 @@ from typing import Iterator
 from devsecbuddy import Ledger, RunCancelled, get_engine, load_vectors, run_assessment
 from devsecbuddy.demo import CLEAN_CORPUS, TILES
 from devsecbuddy.engines import (
-    AnthropicEngine, EngineNotConfigured, MockEngine, RateLimitRetryEngine, VertexEngine,
+    AnthropicEngine, EngineNotConfigured, GeminiProxyEngine, MockEngine, RateLimitRetryEngine,
+    VertexEngine,
 )
 from devsecbuddy.models import AppRequest, Finding
 
 # Engines the backend can select between (docs/ai-engines.md).
-ENGINE_CLASSES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine}
+ENGINE_CLASSES = {"mock": MockEngine, "anthropic": AnthropicEngine, "vertex": VertexEngine,
+                  "gemini": GeminiProxyEngine}
 
 # Seed resumes for an empty ledger — the brief sample corpus the app ships with,
 # carrying the demographic labels used for counterfactual bias pairing.
