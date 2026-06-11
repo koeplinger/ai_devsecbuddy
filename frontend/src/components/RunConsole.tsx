@@ -15,20 +15,34 @@ export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
   const runningCount = runs.filter((r) => r.status === 'running').length;
   const queuedCount = runs.filter((r) => r.status === 'queued').length;
 
-  // AI-model-call stats: fetch on mount + whenever a scoring is active (running or queued),
-  // poll every second; when idle the last snapshot stays on screen.
+  // AI-model-call stats: fetch on mount + whenever a scoring is active (running or queued);
+  // when idle the last snapshot stays on screen. The poll cadence tracks one model call —
+  // wait at least 5s (or the last-call duration if longer), but never longer than 20s — so a
+  // fast backend stays responsive without hammering and a slow one isn't over-polled. Uses a
+  // self-scheduling timeout (not setInterval) so each delay is recomputed from the latest call.
   const active = runs.some((r) => r.status === 'running' || r.status === 'queued');
   const [stats, setStats] = useState<CallStats | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const refresh = () =>
-      api.telemetry().then((s) => !cancelled && setStats(s)).catch(() => {});
-    refresh();
-    if (!active) return () => { cancelled = true; };
-    const id = window.setInterval(refresh, 1000);
+    let timer: number | undefined;
+    const nextDelay = (s: CallStats | null) =>
+      Math.min(20_000, Math.max(5_000, s?.last_ms ?? 0));
+    const tick = () => {
+      api
+        .telemetry()
+        .then((s) => {
+          if (cancelled) return;
+          setStats(s);
+          if (active) timer = window.setTimeout(tick, nextDelay(s));
+        })
+        .catch(() => {
+          if (!cancelled && active) timer = window.setTimeout(tick, 5_000);
+        });
+    };
+    tick(); // immediate fetch on mount / when `active` flips
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [active]);
 
