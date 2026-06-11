@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { TileRun } from '../types';
+import { api } from '../api';
+import type { CallStats, TileRun } from '../types';
 import { FindingsTable } from './FindingsTable';
 import { LogModal } from './LogModal';
 
@@ -13,6 +14,24 @@ interface Props {
 export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
   const runningCount = runs.filter((r) => r.status === 'running').length;
   const queuedCount = runs.filter((r) => r.status === 'queued').length;
+
+  // AI-model-call stats: fetch on mount + whenever a scoring is active (running or queued),
+  // poll every second; when idle the last snapshot stays on screen.
+  const active = runs.some((r) => r.status === 'running' || r.status === 'queued');
+  const [stats, setStats] = useState<CallStats | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () =>
+      api.telemetry().then((s) => !cancelled && setStats(s)).catch(() => {});
+    refresh();
+    if (!active) return () => { cancelled = true; };
+    const id = window.setInterval(refresh, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [active]);
+
   return (
     <section className="panel">
       <div className="panel-head">
@@ -40,7 +59,55 @@ export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
           ))}
         </div>
       )}
+
+      {stats && <CallStatsBar stats={stats} active={active} />}
     </section>
+  );
+}
+
+function fmtMs(ms: number | null): string {
+  if (ms == null) return '—';
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+function fmtTotal(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  const m = Math.floor(ms / 60000);
+  const s = Math.round((ms % 60000) / 1000);
+  return `${m}m ${s}s`;
+}
+
+function CallStatsBar({ stats, active }: { stats: CallStats; active: boolean }) {
+  const last =
+    fmtMs(stats.last_ms) +
+    (stats.last_engine ? ` · ${stats.last_engine}/${stats.last_model ?? '?'}` : '');
+  return (
+    <dl className={`call-stats${active ? ' live' : ''}`} aria-label="AI model call stats">
+      <div>
+        <dt>
+          AI calls{active && <span className="live-dot" title="refreshing live" />}
+        </dt>
+        <dd>{stats.count.toLocaleString()}</dd>
+      </div>
+      <div>
+        <dt>Total time</dt>
+        <dd>
+          {fmtTotal(stats.total_ms)} <span className="muted">· avg {fmtMs(stats.avg_ms)}</span>
+        </dd>
+      </div>
+      <div>
+        <dt>EMA / call</dt>
+        <dd>
+          {fmtMs(stats.ema_90_ms)} <span className="muted">(90%)</span> · {fmtMs(stats.ema_70_ms)}{' '}
+          <span className="muted">(70%)</span>
+        </dd>
+      </div>
+      <div>
+        <dt>Last call</dt>
+        <dd>{last}</dd>
+      </div>
+    </dl>
   );
 }
 

@@ -469,6 +469,54 @@ h4 {
 .stat-warn .stat-value {
   color: var(--sev-medium); /* amber — unscorable (couldn't be evaluated) */
 }
+
+/* ---- AI-model-call stats bar (bottom of the Run console) ---- */
+.call-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0.9rem 0 0;
+  padding: 0.65rem 0.1rem 0.1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+.call-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  margin: 0;
+}
+.call-stats dt {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.call-stats dd {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.call-stats .muted {
+  color: var(--muted);
+}
+.call-stats .live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: call-stats-pulse 1.1s ease-in-out infinite;
+}
+@keyframes call-stats-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-stats .live-dot { animation: none; }
+}
 .run-id {
   font-size: 0.8rem;
   color: var(--muted);

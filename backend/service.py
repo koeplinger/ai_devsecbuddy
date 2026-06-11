@@ -22,6 +22,8 @@ from devsecbuddy.engines import (
     AnthropicEngine, EngineNotConfigured, GeminiProxyEngine, MockEngine, RateLimitRetryEngine,
     VertexEngine,
 )
+
+from .telemetry import CallTelemetry, TelemetryEngine
 from devsecbuddy.models import AppRequest, Finding
 
 # Engines the backend can select between (docs/ai-engines.md).
@@ -133,6 +135,8 @@ class AssessmentService:
         self._worker: threading.Thread | None = None
         self._worker_lock = threading.Lock()        # serialize lazy worker start
         self._stop = False                          # set by close() to retire the worker
+        # Process-global AI-model-call stats (every engine.complete), for the Run-console bar.
+        self.telemetry = CallTelemetry()
         # Serialize resume seeding so concurrent first-access requests can't double-seed.
         self._seed_lock = threading.Lock()
 
@@ -166,7 +170,8 @@ class AssessmentService:
         # Same rate-limit pause-and-retry as the streaming path, but the synchronous endpoint
         # has no progress events and no force-stop, so cap it tighter (a single escalation,
         # ~90s) rather than blocking the HTTP request — and the shared _run_lock — for minutes.
-        adapter = TILES[tile_id](RateLimitRetryEngine(chosen, max_retries=2))
+        adapter = TILES[tile_id](
+            RateLimitRetryEngine(TelemetryEngine(chosen, self.telemetry), max_retries=2))
         vectors = load_vectors(enabled_only=True)
         corpus = self._corpus()
         ledger = Ledger(self.db_path)
@@ -325,7 +330,9 @@ class AssessmentService:
             ledger = Ledger(self.db_path)
             # Wrap the engine so a rate-limit (429) pauses-and-retries this scorer with an
             # escalating wait; `emit` shows the wait and makes the force-stop interrupt it.
-            engine = RateLimitRetryEngine(get_engine(job.engine, model=job.model), on_wait=emit)
+            engine = RateLimitRetryEngine(
+                TelemetryEngine(get_engine(job.engine, model=job.model), self.telemetry),
+                on_wait=emit)
             adapter = TILES[job.tile_id](engine)
             vectors = load_vectors(enabled_only=True)
             out = run_assessment(adapter, vectors, job.corpus, ledger=ledger,

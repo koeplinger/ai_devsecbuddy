@@ -1,4 +1,5 @@
 import type {
+  CallStats,
   EngineInfo,
   Finding,
   FindingFilters,
@@ -59,6 +60,7 @@ export const api = {
   health: () => request<Health>('/health'),
   tiles: () => request<Tile[]>('/tiles'),
   engines: () => request<EngineInfo[]>('/engines'),
+  telemetry: () => request<CallStats>('/telemetry'),
   createRun: (tile_id: string, engine_name?: string, model?: string) =>
     request<RunResult>('/runs', {
       method: 'POST',

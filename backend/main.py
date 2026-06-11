@@ -101,6 +101,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def list_engines() -> list[dict]:
         return service.list_engines()
 
+    @app.get("/telemetry", tags=["meta"])
+    def telemetry() -> dict:
+        """AI-model-call stats since the backend started (powers the Run-console stats bar)."""
+        return service.telemetry.snapshot()
+
     @app.post("/runs", tags=["runs"], status_code=201)
     def create_run(req: RunRequest) -> dict:
         try:

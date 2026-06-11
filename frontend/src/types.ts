@@ -72,6 +72,18 @@ export interface Finding {
   evidence?: Record<string, unknown>;
 }
 
+// GET /telemetry — AI-model-call stats since the backend started (Run-console stats bar).
+export interface CallStats {
+  count: number;
+  total_ms: number;
+  avg_ms: number | null;
+  ema_90_ms: number | null; // EMA with 90% weight on prior
+  ema_70_ms: number | null; // EMA with 70% weight on prior
+  last_ms: number | null;
+  last_engine: string | null;
+  last_model: string | null;
+}
+
 export interface RunSummary {
   probes_run: number;
   vulnerabilities_found: number;
