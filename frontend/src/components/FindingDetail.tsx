@@ -92,6 +92,14 @@ export function FindingDetail({
               <dd>
                 <code>{finding.tile_id}</code>
               </dd>
+              <dt>AI engine</dt>
+              <dd>
+                <code>{finding.engine ?? '—'}</code>
+              </dd>
+              <dt>Model</dt>
+              <dd>
+                <code>{finding.model ?? '—'}</code>
+              </dd>
               <dt>OWASP / CWE</dt>
               <dd>
                 {finding.owasp_ref}

@@ -67,7 +67,7 @@ export function TilesGrid({
             </select>
           </label>
           <button
-            className="btn primary pill assess-all"
+            className="btn primary assess-all"
             onClick={runAll}
             disabled={idleTiles.length === 0}
             title={
