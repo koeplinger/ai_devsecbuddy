@@ -154,6 +154,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except RunNotActive:
             raise HTTPException(status_code=404, detail=f"No queued or running job {job_id!r}")
 
+    @app.get("/runs/active", tags=["runs"])
+    def active_runs() -> list[dict]:
+        """The latest run per tile (in flight OR recently finished), so a freshly loaded or
+        refreshed client can rebuild the Run console — it reconnects to each via
+        GET /runs/{job_id}/stream. (Defined before /runs/{run_id} so 'active' isn't a run id.)"""
+        return service.active_runs()
+
+    @app.get("/runs/{job_id}/stream", tags=["runs"])
+    def attach_run_stream(job_id: str) -> StreamingResponse:
+        """Reconnect to a run's NDJSON stream: replay its whole event log, then tail new
+        events until it finishes. Powers a browser refresh / a second tab. 404 if the job id
+        is unknown or already evicted."""
+        try:
+            lines = service.attach_stream(job_id)
+        except RunNotFound:
+            raise HTTPException(status_code=404, detail=f"Unknown or evicted run {job_id!r}")
+        return StreamingResponse(
+            lines, media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @app.get("/runs", tags=["runs"])
     def list_runs(tile_id: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[dict]:
         return service.list_runs(tile_id=tile_id, limit=limit)

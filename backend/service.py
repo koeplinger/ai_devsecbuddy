@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import io
 import json
-import queue
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Iterator
@@ -87,22 +87,71 @@ class RunNotActive(KeyError):
     """cancel() referenced a job id that isn't queued or running (already finished / bad id)."""
 
 
-# Sentinel posted to a job's event queue to signal the stream is complete.
-_END = object()
+_TERMINAL_EVENTS = ("result", "cancelled", "error")
+# How long a stream blocks waiting for a new event before yielding a heartbeat. The heartbeat
+# (a blank NDJSON line the client skips) ensures the generator yields control periodically, so
+# a disconnected client's thread is released promptly instead of pinned on an idle run.
+_STREAM_POLL_S = 15.0
 
 
 @dataclass
 class _RunJob:
-    """One queued/active streaming assessment. Lives from enqueue until its worker turn
-    finishes (or it is cancelled). ``events`` carries NDJSON-bound progress to the request
-    thread's stream generator; ``cancel`` is observed at each progress event for force-stop."""
+    """One queued/active/finished streaming assessment, held in memory for the backend's
+    lifetime (not the DB — a restart starts fresh). ``log`` is the **durable, append-only
+    event log**: every progress event the worker emits is kept, so a client can (re)attach at
+    any time — a fresh page load or a browser refresh — and rebuild the run console by
+    replaying it, then tail new events live. ``cancel`` is observed at each event for
+    force-stop. The log is decoupled from any consumer, so a disconnected client never stalls
+    the worker."""
     id: str
     tile_id: str
     engine: str
     model: str | None
     corpus: list
-    events: queue.Queue = field(default_factory=queue.Queue)
+    status: str = "queued"                       # queued | running | done | error | cancelled
+    log: list = field(default_factory=list)       # append-only event log (the durable record)
     cancel: threading.Event = field(default_factory=threading.Event)
+    _order: float = field(default_factory=time.monotonic)             # creation order (eviction)
+    _cond: threading.Condition = field(default_factory=threading.Condition)
+    _done: threading.Event = field(default_factory=threading.Event)
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def emit(self, event: dict) -> None:
+        """Append an event to the durable log, advance ``status``, and wake any attached
+        streamers. Terminal events (result/cancelled/error) also mark the job done."""
+        with self._cond:
+            self.log.append(event)
+            t = event.get("type")
+            if t == "run_started":
+                self.status = "running"
+            elif t in _TERMINAL_EVENTS:
+                self.status = "done" if t == "result" else t
+                self._done.set()
+            self._cond.notify_all()
+
+    def stream(self) -> Iterator[str]:
+        """NDJSON lines: replay the whole log so far, then tail new events until the job is
+        terminal. Each call keeps its own cursor, so multiple clients (two tabs, a reconnect)
+        can attach to the same job independently. Yields a blank-line heartbeat when idle so a
+        disconnected client is noticed promptly (the generator must keep returning control)."""
+        cursor = 0
+        while True:
+            with self._cond:
+                if cursor >= len(self.log) and not self._done.is_set():
+                    self._cond.wait(timeout=_STREAM_POLL_S)   # wakes on emit or times out
+                batch = self.log[cursor:]
+                cursor = len(self.log)
+                finished = self._done.is_set() and cursor >= len(self.log)
+            if batch:
+                for event in batch:
+                    yield json.dumps(event) + "\n"
+            elif not finished:
+                yield "\n"   # heartbeat: a blank NDJSON line the client skips
+            if finished:
+                return
 
 
 def _validate_model(engine, model: str | None) -> None:
@@ -137,6 +186,8 @@ class AssessmentService:
         self._stop = False                          # set by close() to retire the worker
         # Process-global AI-model-call stats (every engine.complete), for the Run-console bar.
         self.telemetry = CallTelemetry()
+        # tile_id -> display name, for the active-runs reconnect payload (cheap, static).
+        self._tile_names = {d["tile_id"]: d.get("name", d["tile_id"]) for d in self.list_tiles()}
         # Serialize resume seeding so concurrent first-access requests can't double-seed.
         self._seed_lock = threading.Lock()
 
@@ -229,25 +280,47 @@ class AssessmentService:
         with self._cv:
             if tile_id in self._tiles_in_flight:       # one job per tile (queued or running)
                 raise TileBusy(f"a run is already queued or in progress for tile {tile_id!r}")
+            # This tile's previous (necessarily finished) run is now superseded — drop it so
+            # the registry stays ~one job per tile and its stale stream/attach 404s. Done at
+            # enqueue (not at finish) so it's deterministic, never racing a draining client.
+            for old_id in [jid for jid, j in self._jobs.items() if j.tile_id == tile_id]:
+                del self._jobs[old_id]
             self._tiles_in_flight.add(tile_id)
             self._jobs[job.id] = job
             self._pending.append(job)
             position = len(self._pending)
             self._cv.notify()
-        # The 'queued' event is the FIRST thing in the job's queue, so the client always
-        # learns the job id before any run_started the worker may post.
-        job.events.put({"type": "queued", "id": job.id, "tile_id": tile_id,
-                        "engine_name": resolved, "model": model, "position": position})
+        # The 'queued' event is the FIRST thing in the job's log, so a client always learns
+        # the job id before any run_started the worker may post.
+        job.emit({"type": "queued", "id": job.id, "tile_id": tile_id,
+                  "engine_name": resolved, "model": model, "position": position})
         self._emit_positions()
+        return job.stream()   # replay the log so far (the queued event) + tail live events
 
-        def stream() -> Iterator[str]:
-            while True:
-                event = job.events.get()
-                if event is _END:
-                    break
-                yield json.dumps(event) + "\n"
+    def attach_stream(self, job_id: str) -> Iterator[str]:
+        """Reconnect to an existing job's stream — replay its whole event log, then tail.
+        Powers a browser refresh / a second tab. Raises ``RunNotFound`` for an unknown id
+        (e.g. a finished run already evicted)."""
+        with self._cv:
+            job = self._jobs.get(job_id)
+        if job is None:
+            raise RunNotFound(job_id)
+        return job.stream()
 
-        return stream()
+    def active_runs(self) -> list[dict]:
+        """The latest job per tile (in flight OR recently finished), so a freshly loaded /
+        refreshed client can rebuild the Run console: it reconnects to each via
+        ``attach_stream`` to replay the log and tail live ones."""
+        with self._cv:
+            latest: dict[str, _RunJob] = {}
+            for job in self._jobs.values():
+                cur = latest.get(job.tile_id)
+                if cur is None or job._order > cur._order:
+                    latest[job.tile_id] = job
+            jobs = sorted(latest.values(), key=lambda j: j._order)
+        return [{"job_id": j.id, "tile_id": j.tile_id,
+                 "tile_name": self._tile_names.get(j.tile_id, j.tile_id),
+                 "engine": j.engine, "model": j.model, "status": j.status} for j in jobs]
 
     def cancel_run(self, job_id: str) -> dict:
         """Cancel a job by id. If it is still QUEUED, drop it from the queue (remove from
@@ -256,17 +329,16 @@ class AssessmentService:
         removed_from_queue = False
         with self._cv:
             job = self._jobs.get(job_id)
-            if job is None:
+            if job is None or job.done:                # unknown / already-finished -> not active
                 raise RunNotActive(job_id)
             job.cancel.set()
             if job in self._pending:                   # not started yet -> remove now
                 self._pending.remove(job)
-                self._jobs.pop(job_id, None)
+                self._jobs.pop(job_id, None)           # removed-from-queue jobs are dropped, not kept
                 self._tiles_in_flight.discard(job.tile_id)
                 removed_from_queue = True
         if removed_from_queue:
-            job.events.put({"type": "cancelled", "id": job_id, "reason": "removed_from_queue"})
-            job.events.put(_END)
+            job.emit({"type": "cancelled", "id": job_id, "reason": "removed_from_queue"})
             self._emit_positions()
         # else: the job is active (or just dequeued); the worker / on_event hook stops it.
         return {"cancelled": True, "job_id": job_id,
@@ -292,6 +364,13 @@ class AssessmentService:
         worker = self._worker
         if worker is not None:
             worker.join(timeout=3.0)
+        # The retired worker never ran the still-pending jobs, so end their streams explicitly
+        # (a running job was already cancelled to a terminal event above) — otherwise their
+        # attached generators would block forever instead of completing on shutdown.
+        with self._cv:
+            leftover = [j for j in self._jobs.values() if not j.done]
+        for job in leftover:
+            job.emit({"type": "cancelled", "id": job.id, "reason": "shutdown"})
 
     def _worker_loop(self) -> None:
         while True:
@@ -302,28 +381,37 @@ class AssessmentService:
                     return                                 # retired by close()
                 job = self._pending.pop(0)
                 cancelled_in_queue = job.cancel.is_set()  # cancelled after dequeue race
+            terminal: dict | None = None
             try:
                 if cancelled_in_queue:
-                    job.events.put({"type": "cancelled", "id": job.id,
-                                    "reason": "removed_from_queue"})
+                    terminal = {"type": "cancelled", "id": job.id, "reason": "removed_from_queue"}
                 else:
                     self._emit_positions()             # remaining jobs shift up
                     with self._run_lock:               # one scorer at a time (gates run() too)
-                        self._run_job(job)
+                        terminal = self._run_job(job)
             finally:
+                if terminal is None:                   # defensive: a run always yields a terminal
+                    terminal = {"type": "error", "kind": "error",
+                                "message": "run produced no terminal event"}
+                # ORDER MATTERS: free the tile (and shift the queue) BEFORE the terminal event
+                # is observable, so a client reacting to it sees consistent state — a re-run of
+                # this tile won't 409, and running_tiles()/active_runs() are already updated.
+                # The finished job stays in _jobs (its log is durable for reconnect) until a
+                # later run of the same tile evicts it at enqueue.
                 with self._cv:
-                    self._jobs.pop(job.id, None)
                     self._tiles_in_flight.discard(job.tile_id)
-                job.events.put(_END)
                 self._emit_positions()
+                job.emit(terminal)                     # NOW publish the terminal event -> stream ends
 
-    def _run_job(self, job: _RunJob) -> None:
-        """Execute one assessment, posting progress (and a terminal result/error/cancelled)
-        to the job's event queue. The ``on_event`` hook doubles as the force-stop check."""
+    def _run_job(self, job: _RunJob) -> dict:
+        """Execute one assessment, emitting progress to the job's durable log. RETURNS the
+        terminal event (result/error/cancelled) WITHOUT emitting it — the caller emits it
+        only after per-job cleanup, so a client reacting to it sees consistent state (a freed
+        tile). The ``on_event`` hook doubles as the force-stop check."""
         def emit(event: dict) -> None:
             if job.cancel.is_set():
                 raise RunCancelled()
-            job.events.put(event)
+            job.emit(event)
 
         ledger = None
         try:
@@ -337,31 +425,31 @@ class AssessmentService:
             vectors = load_vectors(enabled_only=True)
             out = run_assessment(adapter, vectors, job.corpus, ledger=ledger,
                                  engine_name=job.engine, on_event=emit)
-            job.events.put({
+            return {
                 "type": "result", "run_id": out["run_id"], "tile_id": job.tile_id,
                 "engine_name": job.engine, "summary": out["summary"],
                 "findings": [self._finding_payload(f) for f in out["findings"]],
-            })
+            }
         except RunCancelled:
-            job.events.put({"type": "cancelled", "id": job.id, "reason": "force_stopped"})
+            return {"type": "cancelled", "id": job.id, "reason": "force_stopped"}
         except NotImplementedError as exc:            # designed-but-unwired engine
-            job.events.put({"type": "error", "kind": "not_available", "message": str(exc)})
+            return {"type": "error", "kind": "not_available", "message": str(exc)}
         except EngineNotConfigured as exc:            # implemented, missing SDK/creds
-            job.events.put({"type": "error", "kind": "not_configured", "message": str(exc)})
+            return {"type": "error", "kind": "not_configured", "message": str(exc)}
         except Exception as exc:                      # surfaced to the client, not swallowed
-            job.events.put({"type": "error", "kind": "error", "message": str(exc)})
+            return {"type": "error", "kind": "error", "message": str(exc)}
         finally:
             if ledger is not None:
                 ledger.close()
 
     def _emit_positions(self) -> None:
         """Push the current 1-based queue position to each still-pending job, so a waiting
-        card shows it advancing as runs ahead of it finish. The puts happen UNDER _cv so a
-        job that is concurrently dequeued or cancelled cannot receive a stale position
-        after it has started or after its terminal event (queue.Queue.put never blocks)."""
+        card shows it advancing as runs ahead of it finish. Emitted UNDER _cv so a job that
+        is concurrently dequeued or cancelled cannot receive a stale position after it has
+        started (a terminal job is no longer in _pending, so it is skipped)."""
         with self._cv:
             for index, job in enumerate(self._pending, start=1):
-                job.events.put({"type": "queued", "id": job.id, "position": index})
+                job.emit({"type": "queued", "id": job.id, "position": index})
 
     def running_tiles(self) -> list[str]:
         """Tiles with a job in flight — queued or running."""

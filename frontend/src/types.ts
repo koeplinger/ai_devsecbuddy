@@ -72,6 +72,17 @@ export interface Finding {
   evidence?: Record<string, unknown>;
 }
 
+// GET /runs/active — a run the backend is still tracking (in flight or recently finished),
+// used to rebuild the Run console after a page load / refresh by reconnecting to its stream.
+export interface ActiveRun {
+  job_id: string;
+  tile_id: string;
+  tile_name: string;
+  engine: string;
+  model: string | null;
+  status: string; // queued | running | done | error | cancelled
+}
+
 // GET /telemetry — AI-model-call stats since the backend started (Run-console stats bar).
 export interface CallStats {
   count: number;

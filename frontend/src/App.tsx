@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './api';
-import type { EngineInfo, Health, RunEvent, Tile, TileRun } from './types';
+import type { ActiveRun, EngineInfo, Health, RunEvent, Tile, TileRun } from './types';
 import { TilesGrid } from './components/TilesGrid';
 import { RunConsole } from './components/RunConsole';
 import { LedgerViewer } from './components/LedgerViewer';
@@ -192,17 +192,70 @@ export function App() {
     [engines],
   );
 
+  // Drive one tile's run from a stream — used both to kick off a new run (POST) and to
+  // reconnect to an existing one after a refresh (GET attach). The TileRun is rebuilt purely
+  // from the event stream via applyEvent, so a reconnect replays the durable backend log and
+  // then tails live events identically to the original run.
+  const consumeRunStream = useCallback(
+    (tileId: string, startStream: (onEvent: (ev: RunEvent) => void, signal: AbortSignal) => Promise<void>) => {
+      aborters.current[tileId]?.abort();
+      const controller = new AbortController();
+      aborters.current[tileId] = controller;
+      runningRef.current.add(tileId);
+
+      const update = (fn: (run: TileRun) => TileRun) =>
+        setRuns((prev) => (prev[tileId] ? { ...prev, [tileId]: fn(prev[tileId]) } : prev));
+
+      startStream((ev) => {
+        update((run) => applyEvent(run, ev));
+        if (ev.type === 'result') setLedgerRefreshKey((k) => k + 1);
+        // ✕ was clicked before the job id arrived — cancel now that we have it, then drop the card.
+        if (ev.type === 'queued' && pendingCancel.current.has(tileId)) {
+          pendingCancel.current.delete(tileId);
+          api.cancelRun(ev.id).catch(() => {});
+          controller.abort();
+          setRuns((prev) => {
+            const next = { ...prev };
+            delete next[tileId];
+            return next;
+          });
+        }
+      }, controller.signal)
+        .catch((e: unknown) => {
+          if (controller.signal.aborted) return;
+          // Reconnect raced eviction (the run finished + was superseded) — drop the card
+          // silently rather than show a spurious error.
+          if (e instanceof ApiError && e.status === 404) {
+            setRuns((prev) => {
+              const next = { ...prev };
+              delete next[tileId];
+              return next;
+            });
+            return;
+          }
+          const message = e instanceof ApiError ? e.message : String(e);
+          update((run) => ({
+            ...run,
+            status: 'error',
+            current: undefined,
+            error: message,
+            lines: [...run.lines, `⚠ ${message}`],
+          }));
+        })
+        .finally(() => {
+          runningRef.current.delete(tileId);
+          if (aborters.current[tileId] === controller) delete aborters.current[tileId];
+        });
+    },
+    [],
+  );
+
   const onRun = useCallback(
     (tileId: string) => {
       const tile = tiles.find((t) => t.tile_id === tileId);
       // Guard against a second concurrent start for this tile. Uses a ref (not the
       // `runs` state) so it reads the live value, immune to stale closures / batching.
       if (runningRef.current.has(tileId)) return;
-      runningRef.current.add(tileId);
-
-      aborters.current[tileId]?.abort();
-      const controller = new AbortController();
-      aborters.current[tileId] = controller;
 
       const engine = selectedEngine;
       const eng = engines.find((e) => e.name === engine);
@@ -225,50 +278,49 @@ export function App() {
           lines: [`connecting to ${engine}${model ? ` · ${model}` : ''}…`],
         },
       }));
-
-      const update = (fn: (run: TileRun) => TileRun) =>
-        setRuns((prev) => (prev[tileId] ? { ...prev, [tileId]: fn(prev[tileId]) } : prev));
-
-      api
-        .streamRun(
-          tileId,
-          engine,
-          model,
-          (ev) => {
-            update((run) => applyEvent(run, ev));
-            if (ev.type === 'result') setLedgerRefreshKey((k) => k + 1);
-            // ✕ was clicked before the job id arrived — cancel now that we have it, then drop the card.
-            if (ev.type === 'queued' && pendingCancel.current.has(tileId)) {
-              pendingCancel.current.delete(tileId);
-              api.cancelRun(ev.id).catch(() => {});
-              controller.abort();
-              setRuns((prev) => {
-                const next = { ...prev };
-                delete next[tileId];
-                return next;
-              });
-            }
-          },
-          controller.signal,
-        )
-        .catch((e: unknown) => {
-          if (controller.signal.aborted) return;
-          const message = e instanceof ApiError ? e.message : String(e);
-          update((run) => ({
-            ...run,
-            status: 'error',
-            current: undefined,
-            error: message,
-            lines: [...run.lines, `⚠ ${message}`],
-          }));
-        })
-        .finally(() => {
-          runningRef.current.delete(tileId);
-          if (aborters.current[tileId] === controller) delete aborters.current[tileId];
-        });
+      consumeRunStream(tileId, (onEvent, signal) =>
+        api.streamRun(tileId, engine, model, onEvent, signal));
     },
-    [selectedEngine, selectedModel, engines, tiles],
+    [selectedEngine, selectedModel, engines, tiles, consumeRunStream],
   );
+
+  // Rebuild the Run console after a page load / refresh: for each run the backend is still
+  // tracking, seed a fresh queued card and reconnect to its stream (which replays the full
+  // log, then tails). A tile already streaming this session is skipped.
+  const reconnectRun = useCallback(
+    (r: ActiveRun) => {
+      if (runningRef.current.has(r.tile_id)) return;
+      setRuns((prev) => ({
+        ...prev,
+        [r.tile_id]: {
+          tileId: r.tile_id,
+          tileName: r.tile_name,
+          engine: r.engine,
+          model: r.model ?? '',
+          status: 'queued',
+          startedAt: Date.now(),
+          lines: [],
+        },
+      }));
+      consumeRunStream(r.tile_id, (onEvent, signal) => api.attachRun(r.job_id, onEvent, signal));
+    },
+    [consumeRunStream],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .activeRuns()
+      .then((active) => {
+        if (!cancelled) active.forEach(reconnectRun);
+      })
+      .catch(() => {
+        /* no backend / no active runs — nothing to restore */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reconnectRun]);
 
   // Remove a card and abort its (now-defunct) stream. Does NOT stop the backend job —
   // callers that need that call api.cancelRun first (the worker is decoupled from the stream).

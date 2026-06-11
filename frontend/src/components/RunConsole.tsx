@@ -45,6 +45,8 @@ export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
         )}
       </div>
 
+      {stats && <CallStatsBar stats={stats} active={active} />}
+
       {runs.length === 0 ? (
         <p className="empty">(start assessment above)</p>
       ) : (
@@ -59,8 +61,6 @@ export function RunConsole({ runs, onOpenFinding, onClose }: Props) {
           ))}
         </div>
       )}
-
-      {stats && <CallStatsBar stats={stats} active={active} />}
     </section>
   );
 }

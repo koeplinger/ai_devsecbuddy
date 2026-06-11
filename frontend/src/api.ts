@@ -1,4 +1,5 @@
 import type {
+  ActiveRun,
   CallStats,
   EngineInfo,
   Finding,
@@ -55,6 +56,59 @@ function queryString(params: Record<string, string | undefined>): string {
   return s ? `?${s}` : '';
 }
 
+// Read an NDJSON streaming response, dispatching one RunEvent per line. Shared by the
+// kickoff (POST /runs/stream) and reconnect (GET /runs/{id}/stream) paths.
+async function consumeNdjsonStream(
+  res: Response,
+  onEvent: (event: RunEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body?.detail) detail = body.detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  if (!res.body) throw new ApiError(0, 'Streaming not supported by this browser.');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const flush = (chunk: string) => {
+    buffer += chunk;
+    let nl: number;
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) onEvent(JSON.parse(line) as RunEvent);
+    }
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      flush(decoder.decode(value, { stream: true }));
+    }
+  } catch (err) {
+    if (signal?.aborted) return;
+    throw new ApiError(0, `Run stream interrupted (${String(err)})`);
+  }
+  // A clean end leaves an empty buffer (every event ends in '\n'); a non-empty tail means
+  // the connection dropped mid-event — surface it rather than throw an unhandled rejection.
+  const tail = buffer.trim();
+  if (tail) {
+    try {
+      onEvent(JSON.parse(tail) as RunEvent);
+    } catch {
+      if (!signal?.aborted) throw new ApiError(0, 'Run stream ended mid-event (truncated).');
+    }
+  }
+}
+
 export const api = {
   base: BASE,
   health: () => request<Health>('/health'),
@@ -95,51 +149,27 @@ export const api = {
       if (signal?.aborted) return;
       throw new ApiError(0, `Cannot reach the backend at ${BASE}. Is it running? (${String(err)})`);
     }
-    if (!res.ok) {
-      let detail = res.statusText;
-      try {
-        const body = (await res.json()) as { detail?: string };
-        if (body?.detail) detail = body.detail;
-      } catch {
-        /* non-JSON error body */
-      }
-      throw new ApiError(res.status, detail);
-    }
-    if (!res.body) throw new ApiError(0, 'Streaming not supported by this browser.');
+    await consumeNdjsonStream(res, onEvent, signal);
+  },
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const flush = (chunk: string) => {
-      buffer += chunk;
-      let nl: number;
-      while ((nl = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (line) onEvent(JSON.parse(line) as RunEvent);
-      }
-    };
+  // The latest run per tile (in flight or recently finished), for rebuilding the Run
+  // console after a page load / refresh.
+  activeRuns: () => request<ActiveRun[]>('/runs/active'),
+
+  // Reconnect to an existing run's stream: replays its event log, then tails live events.
+  attachRun: async (
+    job_id: string,
+    onEvent: (event: RunEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    let res: Response;
     try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        flush(decoder.decode(value, { stream: true }));
-      }
+      res = await fetch(`${BASE}/runs/${encodeURIComponent(job_id)}/stream`, { signal });
     } catch (err) {
       if (signal?.aborted) return;
-      throw new ApiError(0, `Run stream interrupted (${String(err)})`);
+      throw new ApiError(0, `Cannot reach the backend at ${BASE}. Is it running? (${String(err)})`);
     }
-    // A clean end leaves an empty buffer (every event ends in '\n'). A non-empty
-    // tail means the connection dropped mid-event — surface it instead of throwing
-    // an unhandled rejection out of the read loop's try.
-    const tail = buffer.trim();
-    if (tail) {
-      try {
-        onEvent(JSON.parse(tail) as RunEvent);
-      } catch {
-        if (!signal?.aborted) throw new ApiError(0, 'Run stream ended mid-event (truncated).');
-      }
-    }
+    await consumeNdjsonStream(res, onEvent, signal);
   },
   listRuns: (tile_id?: string) =>
     request<RunRow[]>(`/runs${queryString({ tile_id })}`),
