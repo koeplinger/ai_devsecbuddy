@@ -229,12 +229,13 @@ adapter is unit-tested without a key; absent a key or the SDK it raises a clear
 - **`name`:** `"anthropic"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False` — real Claude models
   sample; runs against this engine are live evidence, not deterministic fixtures.
-- **Model ids (selectable, low → high tier):** **`claude-haiku-4-5`** (low,
-  default), **`claude-sonnet-4-6`** (mid), **`claude-opus-4-8`** (high). The catalog
-  is returned by `info()["models"]` and offered in the UI's Model selector; the
-  default comes from **`DEVSECBUDDY_ANTHROPIC_MODEL`** (or the engine's `model=`
-  argument, or per-request `EngineParams.extra["model"]`). Higher tiers cost more.
-  Opus 4.7/4.8 reject sampling params, so the adapter drops `temperature` for them.
+- **Model ids (selectable, ordered cheapest → priciest):** **`claude-haiku-4-5`**
+  (default), **`claude-sonnet-4-6`**, **`claude-opus-4-8`**, **`claude-fable-5`**. The
+  catalog is **data** — `devsecbuddy/defaults/models.json` — returned by
+  `info()["models"]` (no tier labels; order is the ranking) and offered in the UI's Model
+  selector; the default comes from **`DEVSECBUDDY_ANTHROPIC_MODEL`** (or the engine's
+  `model=` argument, or per-request `EngineParams.extra["model"]`). Opus 4.7/4.8 **and Fable
+  5** reject sampling params, so the adapter drops `temperature` for them.
 - **Auth:** an **`ANTHROPIC_API_KEY`** environment variable.
 - **Recommended:** enable **prompt caching**. The system prompt / rubric and the
   attack-library framing are largely constant across a probe run, so caching the
@@ -258,12 +259,13 @@ absent those it raises `EngineNotConfigured`.
 
 - **`name`:** `"vertex"` (recorded in `runs.engine_name`).
 - **Determinism:** `info()["deterministic"] == False`.
-- **Model ids (selectable, low → high tier):** **`gemini-2.5-flash-lite`** (low),
-  **`gemini-2.5-flash`** (mid, default), **`gemini-2.5-pro`** (high) — from
-  `info()["models"]`, offered in the UI's Model selector; default from
-  **`DEVSECBUDDY_VERTEX_MODEL`**. Higher tiers cost more. Flash / Flash-Lite disable
-  "thinking" (`thinking_budget=0`) so the budget goes to the answer; Pro can't disable
-  it, so the adapter caps it (`128`) and adds output headroom.
+- **Model ids (selectable, ordered cheapest → priciest):** the 2.5 series
+  **`gemini-2.5-flash-lite`**, **`gemini-2.5-flash`** (default), **`gemini-2.5-pro`** plus
+  the 3.x series **`gemini-3.1-flash-lite`**, **`gemini-3-flash`**, **`gemini-3.1-pro`** —
+  from `info()["models"]` (the data in `devsecbuddy/defaults/models.json`), offered in the
+  UI's Model selector; default from **`DEVSECBUDDY_VERTEX_MODEL`**. Flash / Flash-Lite
+  disable "thinking" (`thinking_budget=0`) so the budget goes to the answer; Pro can't
+  disable it, so the adapter caps it (`128`) and adds output headroom.
 - **Project / region:** a **GCP project id** and a **region** serving the model
   (default `us-central1`; `us-east1` and `global` also work — see the locations note
   in the setup doc).

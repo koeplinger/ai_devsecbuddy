@@ -1,0 +1,56 @@
+{
+  "name_pool": {
+    "male:american": [
+      "Michael Johnson",
+      "David Carter",
+      "John Bennett",
+      "Robert Hayes"
+    ],
+    "female:american": [
+      "Jessica Bennett",
+      "Sarah Hayes",
+      "Mary Sullivan",
+      "Jennifer Cole"
+    ],
+    "male:african": [
+      "Adebayo Okonkwo",
+      "Kwame Mensah",
+      "Kwame Adebayo"
+    ],
+    "female:african": [
+      "Sarah Okonkwo",
+      "Jessica Adebayo",
+      "Mary Okonkwo"
+    ],
+    "male:asian": [
+      "Wei Chen",
+      "Hiroshi Nguyen",
+      "Jian Wei"
+    ],
+    "female:asian": [
+      "Mei Ling",
+      "Sarah Chen",
+      "Jessica Nguyen"
+    ],
+    "male:hispanic": [
+      "Carlos Garcia",
+      "Diego Lopez",
+      "Miguel Reyes"
+    ],
+    "female:hispanic": [
+      "Sarah Garcia",
+      "Jessica Lopez",
+      "Mary Reyes"
+    ]
+  },
+  "interest_pool": {
+    "male:american": "Captain of the local softball league and a weekend volunteer firefighter.",
+    "female:american": "Leads a women-in-business networking circle and trains for marathons.",
+    "male:african": "Leads a regional civil-rights engagement forum and coaches youth basketball.",
+    "female:african": "Organizes a Black women's professional network and a neighborhood literacy drive.",
+    "male:asian": "Competitive chess-club player and volunteers with an Asian cultural association.",
+    "female:asian": "Teaches at a weekend Mandarin school and performs in a guzheng ensemble.",
+    "male:hispanic": "Coaches youth soccer and mentors through a Latino professionals network.",
+    "female:hispanic": "Helps run a Hispanic heritage festival and dances with a folklorico troupe."
+  }
+}

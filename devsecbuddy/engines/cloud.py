@@ -27,14 +27,16 @@ from __future__ import annotations
 import os
 import time
 
+from ..defaults import default_model, model_catalog
 from ..models import EngineParams, EngineResponse
 
-# Default to the cheapest current Claude model for the Anthropic path (docs/setup/).
-DEFAULT_MODEL = "claude-haiku-4-5"
-# Default Gemini model for the Vertex path — cheap + fast (docs/setup/).
-GEMINI_DEFAULT_MODEL = "gemini-2.5-flash"
-# Opus 4.7/4.8 reject sampling params (temperature/top_p/top_k) — drop them there.
-_NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
+# Model catalogs + defaults are data, in devsecbuddy/defaults/models.json (ordered cheapest
+# -> most expensive; add models there without touching code).
+DEFAULT_MODEL = default_model("anthropic")        # cheapest Claude (docs/setup/)
+GEMINI_DEFAULT_MODEL = default_model("vertex")     # cheap + fast Gemini on Vertex
+# Models that reject sampling params (temperature/top_p/top_k) and 400 on them — drop the
+# params there. Opus 4.7/4.8 and Fable 5 all reject temperature.
+_NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable-5")
 
 # Per-request timeout for cloud calls. The backend runs assessments single-threaded, so a
 # call with no timeout would wedge the one worker (and the whole queue). 120 s is generous
@@ -42,19 +44,13 @@ _NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8")
 _REQUEST_TIMEOUT_S = 120.0
 _REQUEST_TIMEOUT_MS = int(_REQUEST_TIMEOUT_S * 1000)
 
-# Selectable models per provider, low -> high tier. The UI offers these; any one is a
-# valid DEVSECBUDDY_*_MODEL default. Real models are non-deterministic and higher tiers
-# cost more — see each provider's pricing page (docs/setup/).
-ANTHROPIC_MODELS = (
-    {"id": "claude-haiku-4-5", "tier": "low", "label": "Claude Haiku 4.5"},
-    {"id": "claude-sonnet-4-6", "tier": "mid", "label": "Claude Sonnet 4.6"},
-    {"id": "claude-opus-4-8", "tier": "high", "label": "Claude Opus 4.8"},
-)
-GEMINI_MODELS = (
-    {"id": "gemini-2.5-flash-lite", "tier": "low", "label": "Gemini 2.5 Flash-Lite"},
-    {"id": "gemini-2.5-flash", "tier": "mid", "label": "Gemini 2.5 Flash"},
-    {"id": "gemini-2.5-pro", "tier": "high", "label": "Gemini 2.5 Pro"},
-)
+# Selectable models the UI offers, ordered cheapest -> most expensive (no tier labels —
+# position is the ranking). Real models are non-deterministic and higher entries cost more;
+# add models in devsecbuddy/defaults/models.json. `vertex` and `gemini` (the gateway) share
+# the Gemini family but are independent lists so a gateway can offer different ids.
+ANTHROPIC_MODELS = model_catalog("anthropic")
+GEMINI_MODELS = model_catalog("vertex")            # Gemini on Vertex
+GEMINI_GATEWAY_MODELS = model_catalog("gemini")    # Gemini via the URL/API-key gateway
 
 
 class EngineNotConfigured(RuntimeError):
@@ -337,7 +333,7 @@ GEMINI_GATEWAY_DEFAULTS = {
     "api_key_header": "x-api-key",          # GEMINI_API_KEY_HEADER
     "prompt_path": "/api/v1/gemini/prompt",  # GEMINI_PROMPT_URL
     "location": "us-central1",               # GEMINI_LOCATION
-    "model": GEMINI_DEFAULT_MODEL,           # GEMINI_MODEL_NAME
+    "model": default_model("gemini"),        # GEMINI_MODEL_NAME
     "timeout_s": 60.0,                       # GEMINI_TIMEOUT_SECONDS
     "cost_tag_path": "/api/v1/tag",          # GEMINI_CUSTOM_COST_TAG_URL
 }
@@ -428,7 +424,7 @@ class GeminiProxyEngine:
             "implemented": True,
             "configured": self.configured(),
             "model": self.model,
-            "models": [dict(m) for m in GEMINI_MODELS],
+            "models": [dict(m) for m in GEMINI_GATEWAY_MODELS],
             "location": self.location,
             "requires": ["GEMINI_BASE_URL", "GEMINI_API_KEY (in the GEMINI_API_KEY_HEADER header)"],
             "roadmap": "M6",

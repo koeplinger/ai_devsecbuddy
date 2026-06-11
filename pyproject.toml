@@ -32,6 +32,9 @@ devsecbuddy = "devsecbuddy.cli:main"
 [tool.setuptools.packages.find]
 include = ["devsecbuddy*"]
 
+[tool.setuptools.package-data]
+"devsecbuddy.defaults" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

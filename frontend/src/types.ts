@@ -32,8 +32,8 @@ export interface Resume {
 
 export interface ModelInfo {
   id: string;
-  tier: string; // low | mid | high | n/a
   label: string;
+  // Catalogs are ordered cheapest -> most expensive; there is no tier label.
 }
 
 export interface EngineInfo {
@@ -45,7 +45,7 @@ export interface EngineInfo {
   offline?: boolean;
   provider?: string;
   model?: string; // the engine's default/current model id
-  models?: ModelInfo[]; // selectable models (low -> high tier)
+  models?: ModelInfo[]; // selectable models, ordered cheapest -> priciest
   requires?: string[];
   roadmap?: string;
 }

@@ -179,14 +179,20 @@ def test_vertex_pro_keeps_thinking_with_output_headroom():
     assert cfg.max_output_tokens >= 512                  # headroom so the short answer survives
 
 
-def test_engine_model_catalogs_expose_low_mid_high_tiers():
-    a = {m["tier"]: m["id"] for m in AnthropicEngine().info()["models"]}
-    assert a == {"low": "claude-haiku-4-5", "mid": "claude-sonnet-4-6", "high": "claude-opus-4-8"}
-    v = {m["tier"]: m["id"] for m in VertexEngine().info()["models"]}
-    assert set(v) == {"low", "mid", "high"} and v["high"] == "gemini-2.5-pro"
+def test_engine_model_catalogs_are_ordered_without_tier_labels():
+    # Catalogs are ordered cheapest -> most expensive; there are no tier labels (position is
+    # the only ranking, so adding a model is a data edit in defaults/models.json).
+    a = AnthropicEngine().info()["models"]
+    assert [m["id"] for m in a] == [
+        "claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-fable-5",
+    ]  # Fable 5 (most capable, priciest) added last
+    assert all(set(m) == {"id", "label"} for m in a)  # no "tier" key
+    v = [m["id"] for m in VertexEngine().info()["models"]]
+    assert v[:3] == ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"]
+    assert {"gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.1-pro"} <= set(v)  # 3.x added
     # a selected model is honored and reflected by info() (-> recorded on the finding)
-    assert AnthropicEngine(model="claude-opus-4-8").info()["model"] == "claude-opus-4-8"
-    assert VertexEngine(model="gemini-2.5-pro").info()["model"] == "gemini-2.5-pro"
+    assert AnthropicEngine(model="claude-fable-5").info()["model"] == "claude-fable-5"
+    assert VertexEngine(model="gemini-3.1-pro").info()["model"] == "gemini-3.1-pro"
 
 
 def test_unconfigured_engines_raise_clear_error():

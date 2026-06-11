@@ -63,9 +63,10 @@ entirely (nothing is registered and none is sent with the prompt):
 
 - The gateway takes a **single prompt** (no separate system field), so the scoring rubric is
   folded into the top of the prompt.
-- A model selected in the UI is validated against the offered Gemini tiers
-  (`gemini-2.5-flash-lite` / `-flash` / `-pro`); if your gateway names models differently, set
-  `GEMINI_MODEL_NAME` and run without a per-request override.
+- A model selected in the UI is validated against the offered Gemini catalog
+  (`devsecbuddy/defaults/models.json` — the 2.5 and 3.x series); if your gateway names models
+  differently, edit that file (the `gemini` entry) or set `GEMINI_MODEL_NAME` and run without
+  a per-request override.
 - A `429` from the gateway is retried by the rate-limit wrapper (escalating backoff), the same
   as the other cloud engines.
 - Real models are non-deterministic — findings vary run-to-run; the ledger captures per-run

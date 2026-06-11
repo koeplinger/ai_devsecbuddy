@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from backend.config import Settings
 from backend.main import create_app
 from backend.service import AssessmentService, TileBusy
+from devsecbuddy.demo import CLEAN_CORPUS
 
 
 def _gated_run_assessment(release: threading.Event, started: list):
@@ -116,10 +117,12 @@ def test_engines_reports_mock_default_and_cloud_implemented_unconfigured(client)
 def test_engines_expose_model_catalogs(client):
     engines = {e["name"]: e for e in client.get("/engines").json()}
     a = engines["anthropic"]["models"]
-    assert [m["tier"] for m in a] == ["low", "mid", "high"]
-    assert {m["id"] for m in a} == {"claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8"}
-    v = engines["vertex"]["models"]
-    assert {m["id"] for m in v} == {"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro"}
+    assert [m["id"] for m in a] == [  # ordered cheapest -> priciest; Fable 5 added; no tier
+        "claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-fable-5"]
+    assert all("tier" not in m for m in a)
+    v = {m["id"] for m in engines["vertex"]["models"]}
+    assert {"gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.5-pro",
+            "gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.1-pro"} == v  # 2.5 kept + 3.x added
     # a catalog model is accepted; an unknown one is rejected up front with a clear 400
     ok = client.post("/runs", json={"tile_id": "tile-unguarded", "engine_name": "mock",
                                     "model": "mock-resume-scorer-1"})
@@ -400,13 +403,13 @@ def test_delete_findings_removes_them_permanently(client):
 
 def test_resumes_seed_crud_and_validation(client):
     seeded = client.get("/resumes").json()
-    assert len(seeded) == 12  # the shipped sample corpus, seeded on first read
+    assert len(seeded) == len(CLEAN_CORPUS)  # the shipped sample corpus, seeded on first read
     assert all(r["id"] and r["applicant_name"] and r["updated_at"] for r in seeded)
 
     created = client.post("/resumes", json={"applicant_name": "Pat Doe", "resume_text": "Staff engineer."})
     assert created.status_code == 201
     rid = created.json()["id"]
-    assert len(client.get("/resumes").json()) == 13
+    assert len(client.get("/resumes").json()) == len(CLEAN_CORPUS) + 1
 
     updated = client.put(f"/resumes/{rid}", json={"applicant_name": "Pat Doe",
                                                   "resume_text": "Staff engineer, 11y."}).json()
@@ -418,32 +421,32 @@ def test_resumes_seed_crud_and_validation(client):
     assert client.delete("/resumes/nope").status_code == 404
 
     assert client.delete(f"/resumes/{rid}").json()["deleted"] is True
-    assert len(client.get("/resumes").json()) == 12
+    assert len(client.get("/resumes").json()) == len(CLEAN_CORPUS)
 
 
 def test_deleting_all_resumes_reseeds_samples(client):
     first = client.get("/resumes").json()
-    assert len(first) == 12
+    assert len(first) == len(CLEAN_CORPUS)
     for r in first:
         client.delete(f"/resumes/{r['id']}")
     # an empty table re-seeds the shipped samples on next read (spec: seed when empty)
-    assert len(client.get("/resumes").json()) == 12
+    assert len(client.get("/resumes").json()) == len(CLEAN_CORPUS)
 
 
 def test_reset_resumes_restores_defaults(client):
     seeded = client.get("/resumes").json()
-    assert len(seeded) == 12
+    assert len(seeded) == len(CLEAN_CORPUS)
     # mutate the corpus: delete one of the defaults and add a custom resume
     assert client.delete(f"/resumes/{seeded[0]['id']}").json()["deleted"] is True
     client.post("/resumes", json={"applicant_name": "Custom One", "resume_text": "bespoke"})
-    assert len(client.get("/resumes").json()) == 12  # 11 defaults + 1 custom
+    assert len(client.get("/resumes").json()) == len(CLEAN_CORPUS)  # one default deleted + one custom
 
-    # reset wipes ALL of it (edits + additions) and restores the shipped 12
+    # reset wipes ALL of it (edits + additions) and restores the shipped defaults
     restored = client.post("/resumes/reset").json()
-    assert len(restored) == 12
+    assert len(restored) == len(CLEAN_CORPUS)
     names = {r["applicant_name"] for r in restored}
     assert "Custom One" not in names and {"James Carter", "Diego Ramirez"} <= names
-    assert len(client.get("/resumes").json()) == 12
+    assert len(client.get("/resumes").json()) == len(CLEAN_CORPUS)
 
 
 def test_resume_labels_persist_and_drive_bias_pairing(client):
@@ -527,8 +530,8 @@ def test_resume_seeding_is_concurrency_safe(tmp_path):
         t.start()
     for t in threads:
         t.join()
-    # exactly the 12 shipped samples — the seed lock prevented concurrent double-seeding
-    assert len(service.list_resumes()) == 12
+    # exactly the shipped samples — the seed lock prevented concurrent double-seeding
+    assert len(service.list_resumes()) == len(CLEAN_CORPUS)
 
 
 def test_reports_list_runs_and_findings(client):

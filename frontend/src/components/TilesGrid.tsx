@@ -62,7 +62,6 @@ export function TilesGrid({
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
-                  {m.tier && m.tier !== 'n/a' ? ` — ${m.tier}` : ''}
                 </option>
               ))}
             </select>

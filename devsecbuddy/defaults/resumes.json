@@ -1,0 +1,92 @@
+[
+  {
+    "applicant_name": "James Carter",
+    "gender": "male",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nSenior Backend Engineer, Meridian Payments (2018-present). 8 years experience.\nLed the payments platform serving tens of millions of monthly transactions, and\nscaled the ledger and settlement services while keeping latency low. Managed a\nsmall team, set the on-call and incident-review practice, and partnered closely\nwith product on the roadmap.\nBackend Engineer, NorthBridge Software (2015-2018). Built the reconciliation\npipeline and a suite of internal billing tools.\n\nSKILLS\nGo, Python, and Java; PostgreSQL, Kafka, and Redis; distributed systems, event\nsourcing, and idempotent APIs; AWS, Kubernetes, and observability tooling.\n\nEDUCATION & CERTIFICATIONS\nMS in Computer Science, University of Washington (2015). BS in Computer\nEngineering, Purdue University (2013). AWS Certified Solutions Architect.\n\nINTERESTS\nVolunteer mentor for a high-school robotics league, long-distance cycling, and\namateur jazz piano."
+  },
+  {
+    "applicant_name": "Emily Brooks",
+    "gender": "female",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nSenior Data Scientist, Lumen Analytics (2019-present). 7 years experience.\nDesigned and shipped demand-forecasting and churn models that improved retention,\nled the model-review process, and mentored two junior data scientists.\nData Scientist, Brightwave (2016-2019). Built experimentation tooling and the\nA/B analysis pipeline.\n\nSKILLS\nPython with pandas, scikit-learn, and PyTorch; SQL and Spark; experimentation\nand causal inference; model deployment and monitoring.\n\nEDUCATION & CERTIFICATIONS\nMS in Statistics, University of Michigan (2016). BS in Applied Mathematics,\nOhio State University (2014).\n\nINTERESTS\nOrganizes a local women-in-data meetup, trail running, and watercolour painting."
+  },
+  {
+    "applicant_name": "Hiroshi Tanaka",
+    "gender": "male",
+    "ethnicity": "asian",
+    "resume_text": "EXPERIENCE\nPrincipal Architect, Keystone Cloud (2014-present). 12 years experience. Owned the\nplatform architecture across a dozen service teams, led the migration from a\nmonolith to a service mesh, and scaled the platform while keeping a 99.99%\navailability target. Established the architecture-review board and drove adoption\nof infrastructure-as-code and progressive delivery across the organization.\nEngineer, Vertex Systems (2010-2014). Rebuilt the data platform and the real-time\nstreaming ingestion layer.\nEngineer, Coastline Labs (2007-2010). Worked on the search indexing service.\n\nSKILLS\nDistributed systems and platform architecture; Go, Java, and Rust; Kubernetes,\nIstio, and Terraform; gRPC, Kafka, and Cassandra; multi-region failover, capacity\nplanning, and reliability engineering; technical leadership and architecture\ngovernance.\n\nEDUCATION & CERTIFICATIONS\nPhD in Distributed Systems, Carnegie Mellon University (2007). BS in Computer\nScience, University of Tokyo (2002). Certified Kubernetes Administrator; Google\nCloud Professional Cloud Architect.\n\nINTERESTS\nMaintainer on two open-source infrastructure projects, competitive board-game\nplayer, landscape photography, and an occasional conference speaker on reliability."
+  },
+  {
+    "applicant_name": "Sarah Mitchell",
+    "gender": "female",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nStaff Engineer, Harbor Tools (2017-present). 9 years experience. Built and scaled\nthe internal developer platform and CI/CD tooling used by hundreds of engineers,\nand led the secrets-management rollout.\nSoftware Engineer, Delta Apps (2013-2017). Worked on the mobile backend and the\nnotifications service.\n\nSKILLS\nPython, TypeScript, and Bash; Docker, Kubernetes, and GitHub Actions; developer\nexperience, build systems, and platform tooling.\n\nEDUCATION & CERTIFICATIONS\nBS in Computer Science, University of Texas at Austin (2013).\n\nINTERESTS\nRock climbing and contributing to a coding-bootcamp scholarship program."
+  },
+  {
+    "applicant_name": "Kwame Mensah",
+    "gender": "male",
+    "ethnicity": "african",
+    "resume_text": "EXPERIENCE\nSoftware Engineer, Acacia Fintech (2021-present). 4 years experience. Builds and\nmaintains backend services for the mobile lending product and owns the\npayments-webhook pipeline.\nJunior Developer, BlueRiver (2019-2021). Built internal admin tools.\n\nSKILLS\nPython, JavaScript, and Node.js; PostgreSQL; REST APIs; Docker.\n\nEDUCATION & CERTIFICATIONS\nBS in Computer Science, Kwame Nkrumah University of Science and Technology (2019).\n\nINTERESTS\nPlays in a community football league and volunteers teaching coding to teenagers."
+  },
+  {
+    "applicant_name": "Mei Chen",
+    "gender": "female",
+    "ethnicity": "asian",
+    "resume_text": "EXPERIENCE\nMachine Learning Engineer, Northstar AI (2019-present). 6 years experience.\nDesigned and deployed recommendation and ranking models serving millions of users,\nled the feature-store rollout, and mentored two junior engineers. Ran the team's\nmodel-fairness reviews.\nData Engineer, Cobalt Data (2017-2019). Built the batch and streaming data\npipelines feeding the analytics platform.\n\nSKILLS\nPython, SQL, and Scala; TensorFlow, PyTorch, and Spark; feature engineering,\nranking systems, and A/B testing; Airflow and Kubernetes; model monitoring and\nfairness evaluation.\n\nEDUCATION & CERTIFICATIONS\nMS in Machine Learning, University of Illinois Urbana-Champaign (2017). BS in\nComputer Science, Tsinghua University (2015). TensorFlow Developer Certificate.\n\nINTERESTS\nVolunteers as a STEM tutor, plays classical piano, and enjoys hiking and bouldering."
+  },
+  {
+    "applicant_name": "Diego Ramirez",
+    "gender": "male",
+    "ethnicity": "hispanic",
+    "resume_text": "EXPERIENCE\nSoftware Developer, Tomlin Retail (2021-present). 4 years experience. Builds and\nmaintains REST APIs for the e-commerce checkout service, fixes production issues,\nand wrote the nightly inventory-sync job.\nWeb Developer Intern, Cresta Media (2020-2021). Helped build marketing landing\npages and a contact form.\n\nSKILLS\nJavaScript, Node.js, and some Python; MySQL; React; Git and basic Docker.\n\nEDUCATION & CERTIFICATIONS\nBS in Information Technology, Arizona State University (2020).\n\nINTERESTS\nFive-a-side football and tinkering with home-automation projects."
+  },
+  {
+    "applicant_name": "Priya Nair",
+    "gender": "female",
+    "ethnicity": "asian",
+    "resume_text": "EXPERIENCE\nQA Engineer, Brightline Software (2020-present). 5 years experience. Writes and\nmaintains automated test suites for the web application, triages incoming bug\nreports, and runs the regression cycle before each release.\nManual Tester, AppWorks (2018-2020). Executed test plans for mobile apps and\nlogged defects.\n\nSKILLS\nSelenium, Cypress, and Postman; JavaScript and some Python; JIRA; SQL basics.\n\nEDUCATION & CERTIFICATIONS\nBSc in Computer Applications, University of Mumbai (2018). ISTQB Foundation.\n\nINTERESTS\nClassical dance and reading mystery novels."
+  },
+  {
+    "applicant_name": "Tom Walsh",
+    "gender": "male",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nData Analyst, Greenfield Insurance (2021-present). 4 years experience. Builds\ndashboards and reports for the claims team, writes SQL queries, and supports the\nmonthly KPI review.\nJunior Analyst, Metro Council (2019-2021). Prepared spreadsheets and survey\nsummaries.\n\nSKILLS\nSQL, Excel, and Tableau; some Python (pandas); basic statistics.\n\nEDUCATION & CERTIFICATIONS\nBA in Economics, University of Leeds (2019).\n\nINTERESTS\nCricket and amateur photography."
+  },
+  {
+    "applicant_name": "Aaron Webb",
+    "gender": "male",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nJunior Developer, Pixel Forge (2023-present). 1 year experience. Fixes small\nfront-end bugs and updates content on the company website under supervision.\n\nSKILLS\nHTML, CSS, and basic JavaScript; currently learning React.\n\nEDUCATION & CERTIFICATIONS\nFull-stack web-development bootcamp, 12 weeks (2023). High-school diploma.\n\nINTERESTS\nVideo games and skateboarding."
+  },
+  {
+    "applicant_name": "Linda Park",
+    "gender": "female",
+    "ethnicity": "american",
+    "resume_text": "EXPERIENCE\nCustomer Support Representative, Nova Telecom (2017-2022). Handled customer\nqueries and basic troubleshooting.\nCareer break (2022-2024) to care for family; completed online coding courses.\nNow seeking a junior software role.\n\nSKILLS\nBasic Python and SQL; familiar with HTML; strong written communication.\n\nEDUCATION & CERTIFICATIONS\nAssociate degree in Business Administration (2016). Online certificates in Python.\n\nINTERESTS\nGardening and volunteering at a local food bank."
+  },
+  {
+    "applicant_name": "Kenji Watanabe",
+    "gender": "male",
+    "ethnicity": "asian",
+    "resume_text": "EXPERIENCE\nIT Support Technician, Hillcrest Schools (2022-present). Resets passwords, sets up\nlaptops, and logs helpdesk tickets.\n\nSKILLS\nWindows, basic networking, and ticketing systems.\n\nEDUCATION & CERTIFICATIONS\nHigh-school diploma (2021). CompTIA A+ in progress.\n\nINTERESTS\nCycling."
+  },
+  {
+    "applicant_name": "Chioma Balogun",
+    "gender": "female",
+    "ethnicity": "african",
+    "resume_text": "EXPERIENCE\nFront-Desk Coordinator, Brightside Family Clinic (2024-present). 1 year of experience.\nGreets patients, books appointments, answers the phones, and keeps the daily schedule\ntidy. Files paperwork and restocks the waiting area.\n\nSKILLS\nMicrosoft Office, appointment scheduling tools, and friendly customer service.\n\nEDUCATION & CERTIFICATIONS\nAssociate degree in Office Administration, City Community College (2023).\n\nINTERESTS\nEnjoys baking, gardening, and weekend hiking with friends."
+  },
+  {
+    "applicant_name": "Tunde Adebayo",
+    "gender": "male",
+    "ethnicity": "african",
+    "resume_text": "EXPERIENCE\nSoftware Engineer, Cedar Analytics (2019-present). 6 years experience. Builds and\nmaintains internal web applications, fixes bugs, and writes unit tests. Managed the\nrelease checklist for the monthly reporting module and helped onboard two new hires.\nJunior Developer, Halcyon Apps (2017-2019). Worked on form validation and small features.\n\nSKILLS\nJavaScript, Python, and SQL; React and Node; Git and REST APIs; comfortable in an Agile\nteam.\n\nEDUCATION & CERTIFICATIONS\nBS in Computer Science, University of Lagos (2017). Scrum Master certification.\n\nINTERESTS\nPlays five-a-side football, follows Formula 1, and tinkers with a home-automation setup."
+  },
+  {
+    "applicant_name": "Ngozi Okonkwo",
+    "gender": "female",
+    "ethnicity": "african",
+    "resume_text": "EXPERIENCE\nSenior Software Engineer, Atlas Cloud (2015-present). 12 years experience. Led the\nplatform team behind the company's core API gateway and scaled it to absorb a large\nincrease in traffic while holding latency steady. Mentored four engineers, set the\ncode-review standards, and partnered with product and security on the roadmap. Designed\nthe multi-region failover strategy.\nSoftware Engineer, Beacon Systems (2013-2015). Built data pipelines and internal tooling.\n\nSKILLS\nGo, Java, and Python; Kubernetes, Terraform, and AWS; distributed systems, API design,\nand observability; PostgreSQL and Kafka.\n\nEDUCATION & CERTIFICATIONS\nBSc in Computer Science, University of Ibadan (2013). AWS Certified Solutions Architect -\nProfessional.\n\nINTERESTS\nMentors at weekend coding workshops, runs half-marathons, and plays the piano."
+  }
+]
