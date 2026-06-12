@@ -104,6 +104,7 @@ ai_devsecbuddy/
   .gitignore                Python + Node + SQLite ledger + OS cruft.
   docs/                     Canonical documentation set:
     architecture.md           System architecture, data flow, component map.
+    shared-library.md         Embedding DevSecBuddy as a shared component in a host's test flow.
     phases.md                 The 3 phases in depth: inputs/outputs per phase.
     ai-engines.md             AIEngine interface + Mock/Anthropic/Vertex adapters.
     attack-library.md         Attack-vector YAML schema + categories + OWASP map.
