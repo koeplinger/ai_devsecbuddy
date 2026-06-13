@@ -11,10 +11,10 @@ one of them.* The differences you see in the [vulnerability ledger](vulnerabilit
 then isolate cleanly to **guardrail strength**, not to interface drift. That is
 the core idea the rest of the system is built to serve.
 
-> **Status — docs-first prototype.** This deliverable is **documentation and
-> folder structure only**; there is no runtime code yet. Everything below
-> describes *design*: the names, signatures, schemas, and ids are binding (they
-> come verbatim from the Design Bible), but no application is shipped here.
+> **Status — implemented.** The `devsecbuddy` product library and the FastAPI
+> `backend` are implemented and runnable. Everything below describes the *design*
+> the shipped code follows: the names, signatures, schemas, and ids are binding
+> (they come verbatim from the Design Bible) and match the code.
 
 Related docs: [phases.md](phases.md) ·
 [ai-engines.md](ai-engines.md) · [attack-library.md](attack-library.md) ·
@@ -79,8 +79,9 @@ flowchart TB
 
     subgraph Engines["AIEngine adapters (pluggable)"]
         ME["MockEngine\n(default, offline)"]
-        AE["AnthropicEngine\n(designed, wired later)"]
-        VE["VertexEngine\n(designed, wired later)"]
+        AE["AnthropicEngine\n(implemented, live)"]
+        VE["VertexEngine\n(implemented, live)"]
+        GE["GeminiProxyEngine\n(implemented, live)"]
     end
 
     AL["attack-library/vectors/*.yaml\n(data, not code)"]
@@ -139,6 +140,9 @@ class AppRequest:
     fields: dict          # named, swappable inputs, e.g.
                           #   {"applicant_name": "...", "resume_text": "..."}
     raw_text: str | None  # optional fully-rendered prompt, if relevant
+    meta: dict            # out-of-band labels the tile ignores but the prober may
+                          #   use, e.g. demographic labels for counterfactual bias
+                          #   pairing (the engine still only sees `fields`)
 
 @dataclass
 class AppResponse:
@@ -211,7 +215,7 @@ deliverable). Full treatment of each lives in [phases.md](phases.md) and
 
 | Element | Kind | Responsibility |
 | --- | --- | --- |
-| `AIEngine` | Protocol | Pluggable model provider behind `complete(system, prompt, params) -> EngineResponse`. The library and tiles depend only on this interface, never on a concrete SDK. Adapters: **`MockEngine`** (default), **`AnthropicEngine`**, **`VertexEngine`**. |
+| `AIEngine` | Protocol | Pluggable model provider behind `complete(system, prompt, params) -> EngineResponse`. The library and tiles depend only on this interface, never on a concrete SDK. Adapters: **`MockEngine`** (default), **`AnthropicEngine`**, **`VertexEngine`**, **`GeminiProxyEngine`**. |
 | `AppAdapter` | Protocol | The single shared contract every tile implements (`describe`, `invoke`). The prober talks only to this. |
 | `BaselineProfiler` | Class (Phase 1) | Passively observes **clean** traffic and `build`s a `Baseline`. Never mutates inputs adversarially. |
 | `AdversarialProber` | Class (Phase 2) | Renders each `AttackVector` against the tile, calls `AppAdapter.invoke`, and `evaluate`s `success_criteria` (often relative to the `Baseline`) into `ProbeResult`s. |
@@ -223,11 +227,11 @@ deliverable). Full treatment of each lives in [phases.md](phases.md) and
 
 ### 4.1 Engine note
 
-The user has **no Anthropic / Vertex accounts yet**. `AnthropicEngine` and
-`VertexEngine` are **designed and documented now but wired up in a later step**.
-**`MockEngine` is the only adapter implemented first** — it is deterministic,
-offline, and **intentionally flawed** (it complies with injections and exhibits
-name bias by design), so the *tiles' guardrails* are what make the difference.
+`MockEngine` is the **default** adapter — deterministic, offline, free, and
+**intentionally flawed** (it complies with injections and exhibits name bias by
+design), so the *tiles' guardrails* are what make the difference. The cloud engines
+`AnthropicEngine`, `VertexEngine`, and `GeminiProxyEngine` are **implemented and
+live-validated** (roadmap M6); each runs once its credentials are configured.
 An engine that advertises `info()["deterministic"] == True` must return identical
 output for identical `(system, prompt, params)`, which keeps demos and repro
 stable. See [ai-engines.md](ai-engines.md).
@@ -391,7 +395,7 @@ ai_devsecbuddy/
     architecture.md           This file: frontend <-> backend <-> devsecbuddy
                               <-> attack-library <-> ledger; data flow; component map.
     phases.md                 The 3 phases in depth: inputs/outputs per phase.
-    ai-engines.md             AIEngine interface + Mock/Anthropic/Vertex adapters.
+    ai-engines.md             AIEngine interface + Mock/Anthropic/Vertex/Gemini adapters.
     attack-library.md         Attack-vector YAML schema + categories + OWASP map.
     tiles.md                  The 4-tile ladder: guardrails, flaws, expected profiles.
     vulnerability-ledger.md   SQLite schema (tables/columns) + finding lifecycle.
@@ -431,8 +435,9 @@ ai_devsecbuddy/
 ## 7. Storage and persistence
 
 The only component that touches the database is the `Ledger`. It persists to
-**SQLite** at `data/ledger.db` (gitignored), across five tables — `tiles`,
-`runs`, `baselines`, `attack_vectors`, and the core `findings` table. The
+**SQLite** at `data/ledger.db` (gitignored), across six tables — five of record
+(`tiles`, `runs`, `baselines`, `attack_vectors`, and the core `findings`) plus a
+`resumes` table holding the editable sample corpus. The
 `attack_vectors` table stores a *snapshot* of each vector as it was run, so a
 finding stays reproducible even if the source YAML later changes. Full column
 definitions, the finding lifecycle, and the fingerprint/dedup rule are in

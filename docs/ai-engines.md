@@ -6,11 +6,11 @@ this interface — never to a concrete vendor SDK. Swapping the engine behind a
 tile changes *where the tokens come from*, but not the probe suite, the
 guardrail code, the data models, or the ledger.
 
-Three adapters implement the interface:
+Four adapters implement the interface:
 
 | Adapter | Provider | Status | Network | Determinism |
 | --- | --- | --- | --- | --- |
-| **`MockEngine`** | none (built-in) | **implemented first, the default** | **offline** | deterministic |
+| **`MockEngine`** | none (built-in) | **the default** | **offline** | deterministic |
 | **`AnthropicEngine`** | Anthropic (Claude) | implemented + live-validated | online | non-deterministic |
 | **`VertexEngine`** | Google Vertex AI (Gemini) | implemented + live-validated | online | non-deterministic |
 | **`GeminiProxyEngine`** | Google Gemini via an API gateway | implemented (M6) | online | non-deterministic |
@@ -130,7 +130,7 @@ flowchart LR
 
 ## `MockEngine` — the default, intentionally flawed
 
-`MockEngine` is the **default** adapter and the **only one implemented first**.
+`MockEngine` is the **default** adapter — the demo runs on it with no accounts.
 It is **offline** (no network, no SDK, no credentials) and **deterministic**
 (`info()["deterministic"] == True`). It exists so the resume-scorer demo is fully
 reproducible: the model behaves the same way every run, and the *only* thing that
@@ -289,11 +289,12 @@ the default when nothing is set:
 | --- | --- |
 | (unset) | **`MockEngine`** — the default; offline, deterministic. |
 | engine = `mock` | `MockEngine`. |
-| engine = `anthropic` | `AnthropicEngine` — requires `ANTHROPIC_API_KEY` (later step). |
+| engine = `anthropic` | `AnthropicEngine` — Claude via the Anthropic API; requires `ANTHROPIC_API_KEY`. |
 | engine = `vertex` | `VertexEngine` — Gemini on GCP Vertex AI; requires a project + region + ADC. |
+| engine = `gemini` | `GeminiProxyEngine` — Gemini via a URL/API-key gateway; requires `GEMINI_*` env (base URL + API key). |
 
 A run records which engine produced it: the chosen engine's `name` is written to
-the **`runs.engine_name`** column (`mock` | `anthropic` | `vertex`) in the
+the **`runs.engine_name`** column (`mock` | `anthropic` | `vertex` | `gemini`) in the
 vulnerability ledger, so every finding is traceable to the model that generated
 it. See [vulnerability-ledger.md](vulnerability-ledger.md).
 
@@ -348,6 +349,19 @@ here is **exactly** what each adapter needs.
 6. A chosen **Gemini model id** via `DEVSECBUDDY_VERTEX_MODEL` (default
    `gemini-2.5-flash`).
 
+### To enable `GeminiProxyEngine` (Gemini via a URL/API-key gateway)
+
+1. A **gateway base URL** via `GEMINI_BASE_URL` (required; deployment-internal — no default).
+2. A **gateway API key** via `GEMINI_API_KEY`, sent in the `GEMINI_API_KEY_HEADER` header
+   (default `x-api-key`).
+3. Optional connection overrides: `GEMINI_PROMPT_URL`, `GEMINI_LOCATION`,
+   `GEMINI_TIMEOUT_SECONDS` (default 60 s).
+4. A chosen **Gemini model id** via `GEMINI_MODEL_NAME`.
+5. **No SDK** — the adapter uses `urllib` only. Gateway-specific extras (optional):
+   `GEMINI_CUSTOM_COST_TAG`, `GEMINI_CUSTOM_COST_TAG_URL`, and `GEMINI_CUSTOM_CA_BUNDLE`
+   (a custom root-CA PEM bundle for the gateway's TLS). See
+   [docs/setup/google-gemini-gateway.md](setup/google-gemini-gateway.md).
+
 ### What stays the same
 
 Enabling a cloud adapter changes **only** the engine wiring. The `AIEngine`
@@ -355,12 +369,12 @@ interface, the `AppAdapter` tiles, the attack-library YAML, the
 `AdversarialProber`, and the ledger schema are all untouched — that is the payoff
 of the pluggable engine layer. See [roadmap.md](roadmap.md) for sequencing.
 
-| Requirement | `MockEngine` | `AnthropicEngine` | `VertexEngine` |
-| --- | --- | --- | --- |
-| Provider / model | built-in | Anthropic · Claude | Google Vertex AI · Gemini |
-| Account | none | Anthropic account | GCP account + project |
-| Credentials | none | `ANTHROPIC_API_KEY` | ADC (`gcloud` login) / SA key |
-| Region / project | n/a | n/a | GCP project + region |
-| SDK | none | `anthropic` | `google-genai` |
-| Network | offline | online | online |
-| Status | **works today** | **live** | **live** |
+| Requirement | `MockEngine` | `AnthropicEngine` | `VertexEngine` | `GeminiProxyEngine` |
+| --- | --- | --- | --- | --- |
+| Provider / model | built-in | Anthropic · Claude | Google Vertex AI · Gemini | Gemini via URL/API-key gateway |
+| Account | none | Anthropic account | GCP account + project | gateway URL + key |
+| Credentials | none | `ANTHROPIC_API_KEY` | ADC (`gcloud` login) / SA key | `GEMINI_API_KEY` (in `GEMINI_API_KEY_HEADER`) |
+| Region / project | n/a | n/a | GCP project + region | `GEMINI_BASE_URL` |
+| SDK | none | `anthropic` | `google-genai` | none (`urllib`) |
+| Network | offline | online | online | online |
+| Status | **works today** | **live** | **live** | **live** |

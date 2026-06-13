@@ -2,7 +2,7 @@
 
 This gets you an `ANTHROPIC_API_KEY` so DevSecBuddy's `AnthropicEngine` can run the
 probe suite against a real Claude model (roadmap **M6**). It is the simplest and
-cheapest of the two providers, and your prepaid card will work here.
+cheapest of the three providers, and your prepaid card will work here.
 
 > **It is not a subscription.** The Claude API is **prepaid pay-as-you-go**: you buy
 > usage credits (minimum **$5**) and the API draws down per request. No monthly fee.
@@ -56,4 +56,4 @@ against Claude instead of the offline mock.
 > per run — which is exactly the point of testing a real model.
 
 When you have the key, hand it to me (or set it as above) and I'll do a live smoke test.
-See also the [Vertex setup](google-vertex-signup.md) and [ai-engines.md](../ai-engines.md).
+See also the [Vertex setup](google-vertex-signup.md), the [Gemini gateway setup](google-gemini-gateway.md), and [ai-engines.md](../ai-engines.md).

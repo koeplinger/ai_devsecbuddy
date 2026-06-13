@@ -303,9 +303,9 @@ All four tiles run on the same pluggable engine, selected by the backend. The
 default is **`MockEngine`** — deterministic, offline, and *intentionally flawed*
 (it complies with injections and exhibits name bias by design), so the **tiles'
 guardrails are what make the difference**, not the model. `AnthropicEngine`
-(Claude) and `VertexEngine` (Google Vertex AI) are **designed and documented now
-but wired up later** (there are no Anthropic / Vertex accounts yet). See
-[ai-engines.md](ai-engines.md).
+(Claude), `VertexEngine` (Google Vertex AI), and `GeminiProxyEngine` (Gemini via a
+URL/API-key gateway) are **implemented and live-validated** (roadmap M6) and need
+only credentials to run. See [ai-engines.md](ai-engines.md).
 
 ---
 
@@ -337,7 +337,7 @@ a near-empty ledger. The full schema for these records — the `tiles`, `runs`,
 ## Related documentation
 
 - [ai-engines.md](ai-engines.md) — the `AIEngine` interface and the
-  `MockEngine` / `AnthropicEngine` / `VertexEngine` adapters every tile runs on.
+  `MockEngine` / `AnthropicEngine` / `VertexEngine` / `GeminiProxyEngine` adapters every tile runs on.
 - [attack-library.md](attack-library.md) — the attack-vector YAML schema and the
   probe categories run against every tile.
 - [bias-and-fairness.md](bias-and-fairness.md) — the counterfactual name-swap

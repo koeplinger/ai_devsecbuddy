@@ -18,11 +18,12 @@ SQLite ledger in [`../data/`](../data/).
 
 ## Status — roadmap M2 implemented ✅
 
-The FastAPI service is implemented and tested (8 API tests). It hosts the four
+The FastAPI service is implemented and tested (34 API tests). It hosts the four
 reference tiles (from `devsecbuddy.demo`) behind the `AppAdapter` contract and
 exposes the run/report API; it imports `devsecbuddy` and never reimplements
-product logic. Engine selection is env-driven — `MockEngine` is the default, and
-`AnthropicEngine` / `VertexEngine` return **501** until they are wired in M6. Runs
+product logic. Engine selection is env-driven — `MockEngine` is the default; the cloud
+engines `AnthropicEngine`, `VertexEngine`, and `GeminiProxyEngine` are implemented and
+raise `EngineNotConfigured` (→ **503**) when their SDK or credentials are missing. Runs
 complete synchronously (fast on the offline mock); live run-progress streaming is
 deferred to the M3 frontend slice.
 
@@ -40,8 +41,8 @@ deferred to the M3 frontend slice.
 | --- | --- |
 | `GET /health`, `GET /` | Liveness and service info. |
 | `GET /tiles` | List hosted tiles (id, name, guardrails, I/O schema). |
-| `GET /engines` | List engines and whether each is implemented (`mock` today). |
-| `POST /runs` | Run the full three-phase assessment against a tile → summary + findings. Body: `{"tile_id": "...", "engine_name": "mock"}` (`engine_name` optional; unknown name → 400, unwired cloud engine → 501). |
+| `GET /engines` | List engines with their `implemented` and `configured` status (all four report `implemented: true`; `configured` reflects whether each engine's SDK/credentials are present). |
+| `POST /runs` | Run the full three-phase assessment against a tile → summary + findings. Body: `{"tile_id": "...", "engine_name": "mock"}` (`engine_name` optional; unknown name → 400, cloud engine missing SDK/credentials → 503). |
 | `GET /runs`, `GET /runs/{run_id}` | List runs / fetch one run with its findings. |
 | `GET /findings` | Query the ledger (filters: `tile_id`, `category`, `severity`, `status`, `owasp_ref`, `vector_id`). |
 | `GET /findings/{finding_id}` | One finding with full repro + evidence. |

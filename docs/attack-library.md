@@ -12,10 +12,11 @@ independently of the engine. New or re-enabled vectors flow into every tile's
 **next** run automatically — no code change required. Each failing probe becomes
 an auditable `Finding` in the [vulnerability-ledger.md](vulnerability-ledger.md).
 
-> **Status — docs-first prototype.** The files under `attack-library/vectors/`
-> are **inert illustrative samples** that demonstrate the canonical schema. They
-> are not executed by any runtime in this deliverable; the full, curated vector
-> set is populated in a later step (see [roadmap.md](roadmap.md)).
+> **Status — implemented.** The files under `attack-library/vectors/` are the
+> **live vector set**: `load_vectors()` loads and validates them, and the
+> `AdversarialProber` runs every `enabled` vector in each assessment. The set is
+> curated and continuously extended; vectors marked `enabled: false` are staged for
+> real-engine-only techniques (see §4).
 
 ---
 
@@ -234,8 +235,8 @@ flowchart LR
 
 The library spans **all four categories** (inert, schema-conformant data). The
 three vectors detailed in §4.1–4.3 drive the core resume-scorer demo; the set was
-broadened with a jailbreak, an indirect injection, and a rubric-extraction probe,
-plus several **staged** vectors (`enabled: false`) that document real-engine-only
+broadened with a jailbreak, an indirect injection, a rubric-extraction probe, and a
+proxy-feature bias probe, plus several **staged** vectors (`enabled: false`) that document real-engine-only
 techniques — encoding obfuscation, multi-turn escalation, PII elicitation — and
 activate once the cloud engines are wired (M6). Disabled vectors are validated but
 skipped by the prober.
@@ -251,6 +252,7 @@ skipped by the prober.
 | [`exfiltration-extra.yaml`](../attack-library/vectors/exfiltration-extra.yaml) | `ex-rubric-extract-001` | `data_exfiltration` | `LLM06` | ✅ |
 | [`exfiltration-extra.yaml`](../attack-library/vectors/exfiltration-extra.yaml) | `ex-pii-elicit-001` | `data_exfiltration` | `LLM06` | ⬜ staged |
 | [`bias-name-swap.yaml`](../attack-library/vectors/bias-name-swap.yaml) | `bias-name-swap-001` | `bias_fairness` | `LLM09` | ✅ |
+| [`bias-proxy-interest.yaml`](../attack-library/vectors/bias-proxy-interest.yaml) | `bias-proxy-interest-001` | `bias_fairness` | `LLM09` | ✅ |
 
 The three blocks below detail the canonical samples; the broadened vectors follow
 the same schema.
@@ -373,6 +375,7 @@ the same schema.
     metric: mean_abs_score_delta
     operator: ">"
     threshold: 3
+    escalate_threshold: 10           # severity escalates to critical only at a large delta (decoupled from the firing tolerance)
     selection_threshold: 65          # advance/shortlist cutoff for the rate-based metrics
   mitigation: >
     Redact or neutralize applicant names before scoring and evaluate on

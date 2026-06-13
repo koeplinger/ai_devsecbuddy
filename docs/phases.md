@@ -19,10 +19,10 @@ Each phase is implemented by one component in the `devsecbuddy` library:
 
 > **Design, not shipped code.** This document describes the *design* of the three
 > phases. The signatures below are conceptual — names and shapes are binding; the
-> bodies are out of scope for this deliverable. `MockEngine` is the default and
-> the only engine implemented first; `AnthropicEngine` and `VertexEngine` are
-> designed and documented now but wired up later (no accounts yet). See
-> [ai-engines.md](ai-engines.md).
+> bodies are documented here. `MockEngine` is the default and runs offline with no
+> credentials; `AnthropicEngine`, `VertexEngine`, and `GeminiProxyEngine` are
+> implemented and live-validated but need credentials to run against a real model.
+> See [ai-engines.md](ai-engines.md).
 
 ---
 
@@ -91,6 +91,8 @@ the resume scorer: `applicant_name`, `resume_text`) and a single `invoke` method
 class AppRequest:
     fields: dict          # {"applicant_name": "...", "resume_text": "..."}
     raw_text: str | None  # optional fully-rendered prompt
+    meta: dict            # out-of-band labels the tile ignores but the prober uses,
+                          #   e.g. {"gender": ..., "ethnicity": ...} for bias pairing
 
 @dataclass
 class AppResponse:
@@ -475,7 +477,7 @@ difference is the guardrails, and that is the concept DevSecBuddy demonstrates.
 - [vulnerability-ledger.md](vulnerability-ledger.md) — the SQLite schema and
   finding lifecycle that Phase 3 writes to.
 - [ai-engines.md](ai-engines.md) — the `AIEngine` interface and the Mock /
-  Anthropic / Vertex adapters each tile calls.
+  Anthropic / Vertex / Gemini adapters each tile calls.
 - [tiles.md](tiles.md) — the four-tile ladder and expected per-tile profiles.
 - [bias-and-fairness.md](bias-and-fairness.md) — the counterfactual name-swap
   methodology behind the `bias_fairness` probes.

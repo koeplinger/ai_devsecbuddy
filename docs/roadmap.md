@@ -10,9 +10,9 @@ The guiding principles:
   [Design Bible](../README.md) and its child docs *before* any code is written,
   so implementation has no ambiguity to resolve.
 - **`MockEngine` first.** The default engine is deterministic, offline, and
-  intentionally flawed. `AnthropicEngine` and `VertexEngine` are **designed and
-  documented now, wired up later** — the user has no Anthropic or Vertex accounts
-  yet (see [ai-engines.md](ai-engines.md)).
+  intentionally flawed, so the demo runs with no accounts. `AnthropicEngine`,
+  `VertexEngine`, and `GeminiProxyEngine` were wired up afterward (M6) and need
+  credentials to run against a real model (see [ai-engines.md](ai-engines.md)).
 - **Vertical slice early.** We get one tile (`tile-unguarded`) running
   end-to-end — backend, frontend, ledger — before broadening to the full tile
   ladder and attack library.
@@ -121,7 +121,7 @@ hosts the four reference tiles behind `AppAdapter` and exposes the run/report AP
 (`/tiles`, `/engines`, `POST /runs`, `/runs/{id}`, `/findings`), with env-driven
 engine selection (`MockEngine` default; an unconfigured cloud engine returns HTTP 503).
 A `POST /runs` drives the full `open_run → baseline → probe → record → close_run`
-flow and returns the run summary + findings; 8 API tests pass. Runs are
+flow and returns the run summary + findings; 34 API tests pass. Runs are
 synchronous for now — live streaming arrives with the M3 frontend. Run it with
 `uvicorn backend.main:app`; see [`../backend/README.md`](../backend/README.md).
 
@@ -180,7 +180,7 @@ suite — mean/max delta, demographic-parity gap, disparate-impact (four-fifths)
 and flip rate — is computed by [`../devsecbuddy/fairness.py`](../devsecbuddy/fairness.py)
 and recorded in every `bias_fairness` finding's evidence. The four-tile divergence
 now covers `prompt_injection`, `modal_jailbreak`, `data_exfiltration`, and
-`bias_fairness` (`tile-unguarded` → 7 findings, `tile-hardened` → 0); 68 tests pass.
+`bias_fairness` (`tile-unguarded` → 7 findings, `tile-hardened` → 0); 124 tests pass.
 
 ### M6 — Wire `AnthropicEngine`, then `VertexEngine` 🚧 🔑 requires external setup
 
@@ -203,11 +203,13 @@ options. Note that real engines are **non-deterministic**, so repro depends on
 captured evidence in the ledger rather than on identical re-runs. See
 [ai-engines.md](ai-engines.md).
 
-**Status: both cloud engines live-validated.** The two adapters use **different
-providers and SDKs** — `AnthropicEngine` runs **Claude** directly against the
-Anthropic API; `VertexEngine` runs **Gemini 2.5 Flash** on **GCP Vertex AI** (the
-`google-genai` SDK, ADC auth) — and each is unit-tested with a mocked client. **Both
-have been validated against their live models:** real runs on `tile-unguarded`
+**Status: the cloud engines are live-validated.** Three non-mock adapters ship behind
+the `AIEngine` interface, using **different providers and access paths** —
+`AnthropicEngine` runs **Claude** directly against the Anthropic API; `VertexEngine`
+runs **Gemini 2.5 Flash** on **GCP Vertex AI** (the `google-genai` SDK, ADC auth); and
+`GeminiProxyEngine` reaches a **Gemini gateway** over a configurable URL + API key
+(`urllib`, `GEMINI_*` env, no SDK) — and each is unit-tested with a mocked client.
+**Claude and Gemini-on-Vertex have been validated against their live models:** real runs on `tile-unguarded`
 surfaced genuine system-prompt / rubric-leak findings (`data_exfiltration`, LLM06) —
 while the models themselves **resisted the injection and jailbreak probes and showed
 no significant name bias** — and `tile-hardened` came back **clean**, so the guardrail
@@ -260,7 +262,7 @@ ladder; and the broadened attack library + fairness metrics). The next prompts:
 | [README.md](../README.md) | Product intro, the three phases, the tile demo, quickstart. |
 | [architecture.md](architecture.md) | System architecture and component map. |
 | [phases.md](phases.md) | The three phases in depth (inputs/outputs). |
-| [ai-engines.md](ai-engines.md) | `AIEngine` interface and the Mock/Anthropic/Vertex adapters. |
+| [ai-engines.md](ai-engines.md) | `AIEngine` interface and the Mock/Anthropic/Vertex/Gemini adapters. |
 | [attack-library.md](attack-library.md) | Attack-vector YAML schema, categories, and OWASP map. |
 | [tiles.md](tiles.md) | The four-tile ladder: guardrails, flaws, expected profiles. |
 | [vulnerability-ledger.md](vulnerability-ledger.md) | SQLite schema and finding lifecycle. |

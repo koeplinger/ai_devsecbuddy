@@ -357,5 +357,5 @@ flowchart LR
 - [phases.md](phases.md) — the three phases (baseline → probe → ledger) that the
   bias suite runs through.
 - [ai-engines.md](ai-engines.md) — `MockEngine` determinism (why demo deltas are
-  reproducible) and the designed-now / wired-later `AnthropicEngine` and
-  `VertexEngine` adapters.
+  reproducible) and the implemented `AnthropicEngine`, `VertexEngine`, and
+  `GeminiProxyEngine` cloud adapters.

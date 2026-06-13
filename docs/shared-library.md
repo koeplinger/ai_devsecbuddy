@@ -303,7 +303,7 @@ class Finding:
     repro: dict             # exact request snapshot (reproduce the probe)
     evidence: dict          # observed score/text/metadata
     mitigation_guidance: str
-    owasp_ref: str          # LLM01 / LLM06 / LLM09 / N-A
+    owasp_ref: str          # LLM01 / LLM06 / LLM09 / N/A
     cwe: str | None         # CWE-1427 for injection classes
     fingerprint: str; created_at: str
 ```

@@ -8,6 +8,38 @@
 
 ---
 
+## TL;DR — get it running
+
+**Prerequisites:** `git`, **Python 3.10+**, **Node.js + npm**, and **bash**. Everything else — a Python virtualenv and dependencies, the frontend build, and the SQLite ledger schema — is installed by `deploy.sh`. Tested on **Ubuntu Linux** and **macOS**.
+
+**Fastest path — offline, no credentials** (runs the built-in deterministic **mock** engine):
+
+```bash
+git clone <repo-url> && cd ai_devsecbuddy
+bash deploy.sh                 # installs deps, builds the UI, starts backend + frontend
+```
+
+Then open the URL it prints (default <http://localhost:5173>). Stop everything with `bash deploy.sh stop`.
+
+**To test a real model,** get **one** of:
+
+- an **Anthropic API key** (Claude) — see [docs/setup/anthropic-signup.md](docs/setup/anthropic-signup.md), **or**
+- a **Google Vertex AI** account (Gemini on GCP, via `gcloud` auth) — see [docs/setup/google-vertex-signup.md](docs/setup/google-vertex-signup.md), **or**
+- access to a **Gemini URL/API-key gateway** (Gemini via plain HTTPS, no SDK) — see [docs/setup/google-gemini-gateway.md](docs/setup/google-gemini-gateway.md).
+
+Then point the app at it and redeploy:
+
+```bash
+cp .env.sample .env
+# In .env: set DEVSECBUDDY_ENGINE to  anthropic | vertex | gemini,
+#          then fill in that engine's section with the credentials you obtained.
+bash deploy.sh
+```
+
+`.env` is gitignored and auto-loaded by `deploy.sh`. The model is selectable per run in the UI; defaults and the model catalog live in [.env.sample](.env.sample) and `devsecbuddy/defaults/models.json`.
+
+---
+
 ## The problem
 
 A bank's internal AI platform teams are shipping NLP/LLM-backed applications faster than traditional security tooling can keep up. LLM backends carry a class of risks that classic appsec scanners do not catch:
@@ -79,7 +111,7 @@ flowchart TB
     FE["frontend/<br/>Vite + React + TypeScript<br/>tiles grid · run console · ledger viewer"]
     BE["backend/<br/>FastAPI<br/>hosts tiles + DevSecBuddy run/report API"]
     LIB["devsecbuddy/<br/>THE PRODUCT<br/>3 phases + shared AppAdapter contract"]
-    ENG["AIEngine adapters<br/>MockEngine (default) · AnthropicEngine · VertexEngine"]
+    ENG["AIEngine adapters<br/>MockEngine (default) · AnthropicEngine · VertexEngine · GeminiProxyEngine"]
     AL["attack-library/<br/>YAML attack vectors (data, not code)"]
     DB[("data/ledger.db<br/>SQLite vulnerability ledger")]
 
@@ -93,7 +125,7 @@ flowchart TB
 - **`frontend/`** — Vite + React + TypeScript UI: tiles grid, run console, ledger viewer, and a resumes manager (CRUD the sample corpus the app probes against, incl. "extract from PDF"). Holds no security logic; talks only to the backend.
 - **`backend/`** — FastAPI service hosting the AI-application tiles **and** the DevSecBuddy run/report API. It *imports* `devsecbuddy`; it does not reimplement it.
 - **`devsecbuddy/`** — **the product.** A shared Python library implementing the three phases and the single shared contract injected as middleware/protocol across every tile. Transport- and storage-agnostic at its core (the `Ledger` abstracts SQLite).
-- **Pluggable engines** — an `AIEngine` interface with three adapters: **`MockEngine`** (deterministic, offline, intentionally flawed — the **default**), **`AnthropicEngine`** (Claude, via the Anthropic API), and **`VertexEngine`** (Gemini, via Google Cloud Vertex AI). See [docs/ai-engines.md](docs/ai-engines.md).
+- **Pluggable engines** — an `AIEngine` interface with four adapters: **`MockEngine`** (deterministic, offline, intentionally flawed — the **default**), **`AnthropicEngine`** (Claude, via the Anthropic API), **`VertexEngine`** (Gemini, via Google Cloud Vertex AI), and **`GeminiProxyEngine`** (Gemini, via a URL/API-key gateway — plain HTTP with `urllib`, `GEMINI_*` env). See [docs/ai-engines.md](docs/ai-engines.md).
 - **SQLite ledger** — the central vulnerability database at `data/ledger.db` (a runtime artifact; gitignored). See [docs/vulnerability-ledger.md](docs/vulnerability-ledger.md).
 
 ### Repo layout
@@ -106,7 +138,7 @@ ai_devsecbuddy/
     architecture.md           System architecture, data flow, component map.
     shared-library.md         Embedding DevSecBuddy as a shared component in a host's test flow.
     phases.md                 The 3 phases in depth: inputs/outputs per phase.
-    ai-engines.md             AIEngine interface + Mock/Anthropic/Vertex adapters.
+    ai-engines.md             AIEngine interface + Mock/Anthropic/Vertex/Gemini adapters.
     attack-library.md         Attack-vector YAML schema + categories + OWASP map.
     tiles.md                  The 4-tile ladder: guardrails, flaws, expected profiles.
     vulnerability-ledger.md   SQLite schema (tables/columns) + finding lifecycle.
@@ -128,7 +160,7 @@ ai_devsecbuddy/
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | System architecture: frontend ↔ backend ↔ `devsecbuddy` ↔ attack-library ↔ ledger; data flow and component map. |
 | [docs/phases.md](docs/phases.md) | The three phases in depth — inputs and outputs per phase, and the end-to-end run sequence. |
-| [docs/ai-engines.md](docs/ai-engines.md) | The `AIEngine` interface and the `MockEngine` / `AnthropicEngine` / `VertexEngine` adapters. |
+| [docs/ai-engines.md](docs/ai-engines.md) | The `AIEngine` interface and the `MockEngine` / `AnthropicEngine` / `VertexEngine` / `GeminiProxyEngine` adapters. |
 | [docs/attack-library.md](docs/attack-library.md) | The attack-vector YAML schema, the four probe categories, and the OWASP LLM Top 10 mapping. |
 | [docs/tiles.md](docs/tiles.md) | The four-tile resume-scorer ladder: guardrails present, known flaws, and expected DevSecBuddy profiles. |
 | [docs/vulnerability-ledger.md](docs/vulnerability-ledger.md) | The SQLite ledger schema (tables and columns) and the finding lifecycle. |
@@ -144,7 +176,7 @@ The `devsecbuddy` core and the FastAPI backend run today on the offline `MockEng
 
 ```bash
 pip install -e ".[backend,dev]"   # core + FastAPI/uvicorn/httpx + pytest
-python -m pytest -q               # 47 tests (library + API), incl. the tiles.md divergence table
+python -m pytest -q               # 124 tests (library + API), incl. the tiles.md divergence table
 
 # CLI — run the full three-phase loop on all four tiles:
 python -m devsecbuddy --tile all
@@ -157,7 +189,7 @@ curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{"tile_
 npm --prefix frontend install && npm --prefix frontend run dev   # http://localhost:5173
 ```
 
-Both write findings to `data/ledger.db` (gitignored), and the per-tile profile is the same either way: `tile-unguarded` raises three findings (injection, exfiltration, bias), the two middle tiles each raise findings on exactly one axis, and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md) and [backend/README.md](backend/README.md).
+Both write findings to `data/ledger.db` (gitignored), and the per-tile profile is the same either way: `tile-unguarded` raises findings across all four categories (injection, jailbreak, exfiltration, bias); the partially-guarded middle tiles raise fewer (`tile-input-sanitized` leaves only the bias axis, `tile-fairness-aware` leaves the injection/jailbreak/exfiltration axes); and `tile-hardened` raises none — the same probe suite, differentiated purely by guardrail strength. See [devsecbuddy/README.md](devsecbuddy/README.md) and [backend/README.md](backend/README.md).
 
 ### Configuration & live engines
 
@@ -171,21 +203,22 @@ The backend reads the engine + per-provider settings from the environment (`depl
 
 | Variable | Purpose |
 | --- | --- |
-| `DEVSECBUDDY_ENGINE` | Default engine: `mock` (offline/free) · `anthropic` (Claude) · `vertex` (Gemini) |
+| `DEVSECBUDDY_ENGINE` | Default engine: `mock` (offline/free) · `anthropic` (Claude) · `vertex` (Gemini via GCP) · `gemini` (Gemini via URL/API-key gateway) |
 | `ANTHROPIC_API_KEY` · `DEVSECBUDDY_ANTHROPIC_MODEL` | **Claude via the Anthropic API** — key + model (e.g. `claude-haiku-4-5`) |
 | `DEVSECBUDDY_VERTEX_PROJECT` · `_REGION` · `_MODEL` | **Gemini via Google Cloud Vertex AI** — GCP project, region, model (e.g. `gemini-2.5-flash`) |
+| `GEMINI_BASE_URL` · `GEMINI_API_KEY` · `GEMINI_*` | **Gemini via a URL/API-key gateway** — gateway base URL + API key (no SDK; see [docs/setup/google-gemini-gateway.md](docs/setup/google-gemini-gateway.md)) |
 
-The two cloud engines use each provider's **own** native SDK and auth — Claude direct against the **Anthropic API** (API key), and Gemini on **GCP Vertex AI** (no key; Application Default Credentials via `gcloud auth application-default login`). The engine is also selectable per run in the UI. See [docs/setup/](docs/setup/) for signup walkthroughs.
+The three cloud engines reach two model families: **`anthropic`** runs Claude direct against the **Anthropic API** (API key, Anthropic SDK); **`vertex`** runs Gemini on **GCP Vertex AI** (no key; Application Default Credentials via `gcloud auth application-default login`, the `google-genai` SDK); and **`gemini`** reaches Gemini through a URL-based API gateway — plain HTTPS via `urllib` with an API key in a header, no SDK (`GEMINI_*` env). The engine is also selectable per run in the UI. See [docs/setup/](docs/setup/) for signup walkthroughs.
 
 ---
 
 ## Status & roadmap
 
-AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M5** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); the FastAPI backend + run/report API (M2); the Vite + React + TypeScript frontend — tiles grid, run console, ledger viewer (M3); the full four-tile ladder (M4); and the broadened attack library across all four categories plus the fairness-metrics suite (M5). **M6 is essentially complete**: both cloud engines are wired and **live-validated** — **Claude** via the Anthropic API and **Gemini 2.5 Flash** on **Google Cloud Vertex AI** — and the run console streams live per-probe progress. Next: passive learning against a real UAT capture (M7).
+AI DevSecBuddy is an **early prototype**, built **docs-first**. **Milestones M0–M5** are **complete and tested**: the docs + folder structure (M0); the `devsecbuddy` core — contracts, the deterministic offline `MockEngine`, the three phase components, and the five-table SQLite ledger (M1); the FastAPI backend + run/report API (M2); the Vite + React + TypeScript frontend — tiles grid, run console, ledger viewer (M3); the full four-tile ladder (M4); and the broadened attack library across all four categories plus the fairness-metrics suite (M5). **M6 is essentially complete**: the cloud engines are wired and **live-validated** — **Claude** via the Anthropic API, **Gemini 2.5 Flash** on **Google Cloud Vertex AI**, and **Gemini** via a URL/API-key gateway — and the run console streams live per-probe progress. Next: passive learning against a real UAT capture (M7).
 
 The model engines are **pluggable** behind the `AIEngine` interface:
 
 - **`MockEngine`** is the **default** — deterministic, offline, and intentionally flawed (it complies with injections and exhibits name bias by design) so the tiles' guardrails are what make the difference, and so demos and repro stay stable.
-- **`AnthropicEngine`** runs **Claude directly against the Anthropic API**; **`VertexEngine`** runs **Google's Gemini models on GCP Vertex AI** (each via its provider's own SDK). Both are live; select one in the UI or via `DEVSECBUDDY_ENGINE`. The same probe suite runs on a real model and the tile ladder still diverges — guardrail strength stays measurable.
+- **`AnthropicEngine`** runs **Claude directly against the Anthropic API** and **`VertexEngine`** runs **Google's Gemini models on GCP Vertex AI** (each via its provider's own SDK); **`GeminiProxyEngine`** (`gemini`) reaches Gemini through a URL/API-key gateway via plain `urllib` (no SDK), configured with `GEMINI_*` env vars. All three are live; select one in the UI or via `DEVSECBUDDY_ENGINE`. The same probe suite runs on a real model and the tile ladder still diverges — guardrail strength stays measurable.
 
 See [docs/roadmap.md](docs/roadmap.md) for the phased delivery plan.
